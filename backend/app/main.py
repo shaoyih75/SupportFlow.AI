@@ -6,60 +6,73 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="SupportFlow API", version="0.1.0", description="Backend skeleton for support operations.")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="Northstar Workspace API", version="0.2.0", description="Mock backend skeleton for collaborative workspace documents.")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-Status = Literal["open", "pending", "resolved"]
-
-class Ticket(BaseModel):
+class Workspace(BaseModel):
     id: str
-    customer: str
-    subject: str
-    message: str
-    status: Status
-    priority: Literal["high", "normal"] = "normal"
-    channel: Literal["Email", "Chat"]
-    tag: str
-    created_at: datetime
+    name: str
+    member_count: int
 
-class CreateTicket(BaseModel):
-    customer: str = Field(min_length=2)
-    subject: str = Field(min_length=3)
-    message: str = Field(min_length=1)
-    channel: Literal["Email", "Chat"] = "Email"
-    priority: Literal["high", "normal"] = "normal"
-    tag: str = "General"
+class Document(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    content: str
+    category: str
+    updated_at: datetime
+    is_favorite: bool = False
 
-class Reply(BaseModel):
-    message: str = Field(min_length=1)
+class CreateDocument(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = ""
+    category: str = "Uncategorized"
 
-TICKETS = [
-    Ticket(id="SF-1048", customer="Ava Thompson", subject="Unable to sync my workspace", message="The sync has been running for more than 20 minutes.", status="open", priority="high", channel="Email", tag="Integrations", created_at=datetime.now(timezone.utc)),
-    Ticket(id="SF-1047", customer="Marcus Chen", subject="Invoice shows the wrong plan", message="I upgraded last week but this month still shows the old plan.", status="pending", channel="Chat", tag="Billing", created_at=datetime.now(timezone.utc)),
+class Comment(BaseModel):
+    document_id: str
+    body: str = Field(min_length=1)
+    author: str = "Jamie Wilson"
+
+WORKSPACE = Workspace(id="northstar", name="Northstar Inc.", member_count=12)
+DOCUMENTS = [
+    Document(id="welcome", workspace_id=WORKSPACE.id, title="Welcome to Northstar", content="A calm, shared home for the way your team thinks.", category="Getting started", updated_at=datetime.now(timezone.utc), is_favorite=True),
+    Document(id="handbook", workspace_id=WORKSPACE.id, title="Team handbook", content="How we work together, make decisions, and keep momentum.", category="Company", updated_at=datetime.now(timezone.utc)),
+    Document(id="roadmap", workspace_id=WORKSPACE.id, title="Product roadmap", content="A living view of what we are building next.", category="Product", updated_at=datetime.now(timezone.utc)),
 ]
+COMMENTS: list[Comment] = []
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "supportflow-api"}
+    return {"status": "ok", "service": "northstar-workspace-api", "data_mode": "mock"}
 
-@app.get("/api/v1/tickets", response_model=list[Ticket])
-def list_tickets(status: Status | None = None) -> list[Ticket]:
-    return [ticket for ticket in TICKETS if status is None or ticket.status == status]
+@app.get("/api/v1/workspaces", response_model=list[Workspace])
+def list_workspaces() -> list[Workspace]:
+    return [WORKSPACE]
 
-@app.get("/api/v1/tickets/{ticket_id}", response_model=Ticket)
-def get_ticket(ticket_id: str) -> Ticket:
-    ticket = next((item for item in TICKETS if item.id == ticket_id), None)
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+@app.get("/api/v1/workspaces/{workspace_id}/documents", response_model=list[Document])
+def list_documents(workspace_id: str) -> list[Document]:
+    if workspace_id != WORKSPACE.id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return [document for document in DOCUMENTS if document.workspace_id == workspace_id]
 
-@app.post("/api/v1/tickets", response_model=Ticket, status_code=201)
-def create_ticket(payload: CreateTicket) -> Ticket:
-    ticket = Ticket(id=f"SF-{uuid4().hex[:6].upper()}", status="open", created_at=datetime.now(timezone.utc), **payload.model_dump())
-    TICKETS.insert(0, ticket)
-    return ticket
+@app.get("/api/v1/documents/{document_id}", response_model=Document)
+def get_document(document_id: str) -> Document:
+    document = next((item for item in DOCUMENTS if item.id == document_id), None)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
 
-@app.post("/api/v1/tickets/{ticket_id}/replies")
-def reply_to_ticket(ticket_id: str, payload: Reply) -> dict[str, str]:
-    get_ticket(ticket_id)
-    return {"ticket_id": ticket_id, "message": payload.message, "status": "queued"}
+@app.post("/api/v1/workspaces/{workspace_id}/documents", response_model=Document, status_code=201)
+def create_document(workspace_id: str, payload: CreateDocument) -> Document:
+    if workspace_id != WORKSPACE.id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    document = Document(id=f"doc-{uuid4().hex[:8]}", workspace_id=workspace_id, updated_at=datetime.now(timezone.utc), **payload.model_dump())
+    DOCUMENTS.insert(0, document)
+    return document
+
+@app.post("/api/v1/documents/{document_id}/comments", response_model=Comment, status_code=201)
+def add_comment(document_id: str, payload: Comment) -> Comment:
+    get_document(document_id)
+    comment = Comment(document_id=document_id, body=payload.body, author=payload.author)
+    COMMENTS.append(comment)
+    return comment

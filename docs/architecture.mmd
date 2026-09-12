@@ -1,18 +1,16 @@
 flowchart LR
-    Agent[Support agent] --> UI[React + TypeScript
-    Mock dashboard]
+    User[Workspace member] --> UI[React + TypeScript<br/>Document workspace]
     UI --> API[FastAPI REST API]
-    API --> Domain[Ticket domain
-    validation + status]
-    Domain --> Repo[(Ticket repository)]
-    API --> Events[Future event queue
-    notifications / AI]
-    Events --> Integrations[Email + Chat providers]
-    Domain --> Analytics[Future analytics service]
+    API --> Domain[Workspace + document domain<br/>validation and permissions]
+    Domain --> Repo[(Document repository<br/>mock data)]
+    Domain --> Comments[Comments and activity]
+    API --> Events[Future event layer<br/>notifications and indexing]
+    Events --> Search[Future search service]
+    Events --> Integrations[Future integrations<br/>Slack / Email / Drive]
 
     classDef client fill:#eef0ff,stroke:#5c6ef8,color:#272b39
     classDef service fill:#fff0eb,stroke:#f07f70,color:#272b39
     classDef data fill:#e8f8ef,stroke:#43ad77,color:#272b39
-    class UI,Agent client
-    class API,Domain,Events,Analytics service
-    class Repo,Integrations data
+    class User,UI client
+    class API,Domain,Events service
+    class Repo,Comments,Search,Integrations data

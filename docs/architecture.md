@@ -1,14 +1,24 @@
-# SupportFlow architecture
+# Northstar Workspace Document architecture
 
 ```mermaid
 flowchart LR
-    Agent[Support agent] --> UI[React + TypeScript\nMock dashboard]
+    User[Workspace member] --> UI[React + TypeScript<br/>Document workspace]
     UI --> API[FastAPI REST API]
-    API --> Domain[Ticket domain\nvalidation + status]
-    Domain --> Repo[(Ticket repository)]
-    API --> Events[Future event queue\nnotifications / AI]
-    Events --> Integrations[Email + Chat providers]
-    Domain --> Analytics[Future analytics service]
+    API --> Domain[Workspace + document domain<br/>validation and permissions]
+    Domain --> Repo[(Document repository<br/>mock data)]
+    Domain --> Comments[Comments and activity]
+    API --> Events[Future event layer<br/>notifications and indexing]
+    Events --> Search[Future search service]
+    Events --> Integrations[Future integrations<br/>Slack / Email / Drive]
 ```
 
-The current skeleton keeps persistence in memory so the API and UI boundaries are easy to understand. A production implementation can replace the repository with Postgres without changing the route contract, then add authentication, background events, provider adapters, and AI-assisted classification behind the domain layer.
+## Request flow
+
+1. A workspace member selects or edits a document in the React document workspace.
+2. The frontend calls the FastAPI API for workspaces, documents, and comments.
+3. The domain layer owns document validation, membership, and permission rules.
+4. The repository currently serves mock documents in memory.
+5. Comments and activity are kept as separate collaboration concerns.
+6. The event layer, search, and external integrations are future extension points.
+
+All current data is mock data. There is no database or external integration connected yet.
