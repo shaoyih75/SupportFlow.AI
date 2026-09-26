@@ -10,7 +10,9 @@ Everything is mocked for now. The frontend uses local mock documents, and the ba
 
 ```text
 backend/app/main.py       # workspace/document API and in-memory mock repository
-frontend/src/App.tsx      # document workspace UI and mock interactions
+frontend/app/             # Next.js routes (Dashboard, Documents, Tickets, AI Assistant)
+frontend/components/      # reusable React components
+frontend/lib/api.ts       # typed mock API client (frontend/backend boundary)
 docs/architecture.mmd     # current Workspace Document architecture
 ```
 
@@ -22,7 +24,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://localhost:3000. See [frontend/README.md](frontend/README.md) for the frontend architecture.
 
 ## Run the backend
 

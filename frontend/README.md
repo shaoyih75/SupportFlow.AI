@@ -1,32 +1,44 @@
-# React + TypeScript + Vite
+# SupportFlow.AI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Next.js (App Router) + React + TypeScript. Next.js handles routing and layout; the UI itself is plain React: components, props, state, events and async data.
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev        # http://localhost:3000
+npm run build      # production build + type check
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Architecture
+
+```text
+app/
+  layout.tsx                          # root <html> shell
+  page.tsx                            # redirects to the default workspace
+  workspaces/[workspaceId]/
+    layout.tsx                        # shared shell: Sidebar + content
+    page.tsx                          # Dashboard
+    documents/page.tsx                # search + status filter, 4 UI states
+    tickets/page.tsx                  # status filter, 4 UI states
+    assistant/page.tsx                # controlled form, mock answer with citations
+components/
+  Sidebar.tsx  PageHeader.tsx  DocumentCard.tsx  TicketCard.tsx
+  StatusBadge.tsx  AsyncStates.tsx    # Loading / Empty / Error
+lib/
+  types.ts                            # Document, Ticket, Workspace, ProcessingJob...
+  api.ts                              # the only frontend/backend boundary
+  mock-data.ts                        # imported by api.ts only
+```
+
+Data flow: `page (state + useEffect) → lib/api.ts → mock data`. When FastAPI is connected, only `lib/api.ts` changes, and pages and components stay the same.
+
+## Demo workspaces
+
+Use the workspace switcher in the sidebar to see every async UI state:
+
+| Workspace | Shows |
+|-----------|-------|
+| Acme Support | loading → success |
+| New Team (empty) | empty state |
+| Broken API (error demo) | error state with Retry |

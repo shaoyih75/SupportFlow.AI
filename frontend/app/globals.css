@@ -1,0 +1,140 @@
+:root {
+  --ink: #1f2330;
+  --muted: #6b7080;
+  --line: #e6e7ee;
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --accent: #5b5bd6;
+  --accent-soft: #ecebff;
+  --success: #1f8a5b;
+  --success-soft: #e3f6ec;
+  --warning: #a86a00;
+  --warning-soft: #fff3d6;
+  --danger: #c2413b;
+  --danger-soft: #fde8e7;
+  --info: #2f6fd6;
+  --info-soft: #e5efff;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  color: var(--ink);
+  background: var(--bg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+button, input, select { font: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* Shell */
+.shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 240px;
+  flex: 0 0 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 16px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-weight: 700; font-size: 17px; }
+.brand-mark {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 8px; background: var(--accent); color: #fff;
+}
+.brand-ai { color: var(--accent); margin-left: -8px; }
+.nav { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; }
+.nav-link { padding: 8px 12px; border-radius: 8px; color: var(--muted); font-weight: 500; }
+.nav-link:hover { background: var(--bg); color: var(--ink); }
+.nav-link.active { background: var(--accent-soft); color: var(--accent); }
+.sidebar-foot { margin-top: auto; color: var(--muted); font-size: 12px; }
+.content { flex: 1; min-width: 0; padding: 32px 40px; max-width: 1100px; }
+
+/* Page header */
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.page-header h1 { margin: 0; font-size: 26px; }
+.page-header p { margin: 4px 0 0; color: var(--muted); }
+
+/* Form controls */
+.field-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.input, .select {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); color: var(--ink);
+}
+.input:focus, .select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.select-inline { width: auto; }
+.button {
+  padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); cursor: pointer; font-weight: 500;
+}
+.button-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.button:disabled { opacity: .5; cursor: not-allowed; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 20px; }
+.toolbar .input { flex: 1 1 240px; width: auto; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.segmented button { padding: 8px 12px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600; }
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button.active { background: var(--accent-soft); color: var(--accent); }
+
+/* Cards */
+.card { display: block; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.card h3 { margin: 10px 0 4px; font-size: 15px; }
+.card-meta { margin: 0; color: var(--muted); font-size: 12px; }
+.card-top { display: flex; justify-content: space-between; align-items: center; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.source-tag { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.list { display: flex; flex-direction: column; gap: 10px; }
+.ticket-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ticket-card h3 { margin-top: 0; }
+.ticket-badges { display: flex; gap: 6px; flex-shrink: 0; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.stat { display: flex; flex-direction: column; gap: 4px; transition: border-color .15s; }
+.stat:hover { border-color: var(--accent); }
+.stat-value { font-size: 30px; font-weight: 700; }
+.stat-label { color: var(--muted); }
+
+/* Badge */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.badge-warning { background: var(--warning-soft); color: var(--warning); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-info { background: var(--info-soft); color: var(--info); }
+.badge-neutral { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+
+/* Async states */
+.state {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 48px 16px; border: 1px dashed var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--muted); text-align: center;
+}
+.state p { margin: 0; }
+.state strong { color: var(--ink); }
+.state-loading { flex-direction: row; justify-content: center; }
+.state-error { border-color: var(--danger-soft); }
+.state-error strong { color: var(--danger); }
+.spinner {
+  width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Assistant */
+.ask-form { display: flex; gap: 10px; margin-bottom: 20px; }
+.answer p { margin: 0 0 12px; }
+.answer ul { margin: 6px 0 0; padding-left: 18px; }
+
+.not-found { display: grid; place-items: center; gap: 12px; min-height: 100vh; align-content: center; }
+
+@media (max-width: 760px) {
+  .shell { flex-direction: column; }
+  .sidebar { width: 100%; flex-basis: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .brand { margin-bottom: 8px; }
+  .nav { flex-direction: row; flex-wrap: wrap; margin-top: 8px; }
+  .sidebar-foot { display: none; }
+  .content { padding: 24px 16px; }
+  .ticket-card { flex-direction: column; align-items: flex-start; }
+}
