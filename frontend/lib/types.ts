@@ -1,6 +1,5 @@
-// Frontend contract types. These mirror the Phase 1 data model
-// (users / workspaces / documents / processing_jobs) plus Tickets.
-// When the FastAPI backend lands, lib/api.ts maps snake_case JSON into these.
+// Frontend contract types. Field names are camelCase here; lib/api.ts maps
+// the FastAPI snake_case JSON into these shapes, so components never see snake_case.
 
 export type WorkspaceRole = "OWNER" | "MEMBER";
 
@@ -39,10 +38,22 @@ export type TicketPriority = "LOW" | "MEDIUM" | "HIGH";
 export type Ticket = {
   id: string;
   workspaceId: string;
-  title: string;
+  subject: string;
   status: TicketStatus;
   priority: TicketPriority;
   createdAt: string;
+};
+
+export type TicketCreate = {
+  subject: string;
+  priority: TicketPriority;
+};
+
+export type Page<T> = {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
 };
 
 export type Citation = {

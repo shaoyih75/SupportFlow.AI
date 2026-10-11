@@ -20,25 +20,28 @@ app/
     layout.tsx                        # shared shell: Sidebar + content
     page.tsx                          # Dashboard
     documents/page.tsx                # search + status filter, 4 UI states
-    tickets/page.tsx                  # status filter, 4 UI states
+    tickets/page.tsx                  # FastAPI list/create, server-side filter + pagination
+    tickets/[ticketId]/page.tsx       # ticket detail, 404 → "Ticket not found"
     assistant/page.tsx                # controlled form, mock answer with citations
 components/
-  Sidebar.tsx  PageHeader.tsx  DocumentCard.tsx  TicketCard.tsx
+  Sidebar.tsx  PageHeader.tsx  DocumentCard.tsx  TicketCard.tsx  TicketForm.tsx
   StatusBadge.tsx  AsyncStates.tsx    # Loading / Empty / Error
 lib/
   types.ts                            # Document, Ticket, Workspace, ProcessingJob...
-  api.ts                              # the only frontend/backend boundary
-  mock-data.ts                        # imported by api.ts only
+  api.ts                              # the only frontend/backend boundary (fetch + ApiError)
+  config.ts                           # seeded default workspace id
+  mock-data.ts                        # Documents mock, imported by api.ts only
 ```
 
-Data flow: `page (state + useEffect) → lib/api.ts → mock data`. When FastAPI is connected, only `lib/api.ts` changes, and pages and components stay the same.
+Data flow: `page (state + useEffect) → lib/api.ts → /api (Next.js proxy) → FastAPI`. Documents still use mock data inside `lib/api.ts`.
 
-## Demo workspaces
+The backend must be running for Workspaces and Tickets. See the root [README](../README.md).
 
-Use the workspace switcher in the sidebar to see every async UI state:
+## Seeded workspaces
 
 | Workspace | Shows |
 |-----------|-------|
-| Acme Support | loading → success |
-| New Team (empty) | empty state |
-| Broken API (error demo) | error state with Retry |
+| Acme Support | tickets list, filter, pagination, create |
+| New Team | empty state |
+| (stop FastAPI) | error state with Retry; sidebar shows "API offline" |
+| `/tickets/<bad id>` | "Ticket not found" |
