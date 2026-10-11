@@ -6,12 +6,12 @@ import { useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/AsyncStates";
 import { PageHeader } from "@/components/PageHeader";
 import { getDocuments, getTickets } from "@/lib/api";
-import type { Document, Ticket } from "@/lib/types";
+import type { Document } from "@/lib/types";
 
 export default function DashboardPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [openTickets, setOpenTickets] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -20,11 +20,12 @@ export default function DashboardPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([getDocuments(workspaceId), getTickets(workspaceId)])
-      .then(([docs, tks]) => {
+    // pageSize 1: we only need `total` from the paginated response.
+    Promise.all([getDocuments(workspaceId), getTickets(workspaceId, { status: "OPEN", pageSize: 1 })])
+      .then(([docs, open]) => {
         if (cancelled) return;
         setDocuments(docs);
-        setTickets(tks);
+        setOpenTickets(open.total);
       })
       .catch(() => !cancelled && setError("Failed to load dashboard"))
       .finally(() => !cancelled && setLoading(false));
@@ -38,7 +39,7 @@ export default function DashboardPage() {
     { label: "Documents", value: documents.length, href: `${base}/documents` },
     { label: "Ready", value: documents.filter((d) => d.status === "READY").length, href: `${base}/documents` },
     { label: "Processing", value: documents.filter((d) => d.status === "PROCESSING").length, href: `${base}/documents` },
-    { label: "Open tickets", value: tickets.filter((t) => t.status !== "RESOLVED").length, href: `${base}/tickets` },
+    { label: "Open tickets", value: openTickets, href: `${base}/tickets` },
   ];
 
   return (

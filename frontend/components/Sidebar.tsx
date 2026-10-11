@@ -21,9 +21,12 @@ export function Sidebar({ workspaceId }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [apiOffline, setApiOffline] = useState(false);
 
   useEffect(() => {
-    getWorkspaces().then(setWorkspaces);
+    getWorkspaces()
+      .then(setWorkspaces)
+      .catch(() => setApiOffline(true));
   }, []);
 
   const base = `/workspaces/${workspaceId}`;
@@ -65,7 +68,9 @@ export function Sidebar({ workspaceId }: SidebarProps) {
         })}
       </nav>
 
-      <p className="sidebar-foot">Mock data · no backend connected</p>
+      <p className="sidebar-foot">
+        {apiOffline ? "⚠ API offline: start FastAPI on :8000" : "Tickets: FastAPI · Documents: mock"}
+      </p>
     </aside>
   );
 }

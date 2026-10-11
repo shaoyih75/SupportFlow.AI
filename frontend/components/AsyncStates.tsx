@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 // The three non-success UI states every async page needs.
 // loading ≠ empty ≠ error: each means something different to the user.
 
@@ -9,22 +11,38 @@ export function LoadingState({ label = "Loading…" }: { label?: string }) {
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+type EmptyStateProps = {
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+};
+
+export function EmptyState({ title, hint, action }: EmptyStateProps) {
   return (
     <div className="state">
       <strong>{title}</strong>
       {hint && <p>{hint}</p>}
+      {action}
     </div>
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+type ErrorStateProps = {
+  message: string;
+  requestId?: string | null;
+  onRetry?: () => void;
+};
+
+export function ErrorState({ message, requestId, onRetry }: ErrorStateProps) {
   return (
     <div className="state state-error" role="alert">
       <strong>{message}</strong>
-      <button className="button" onClick={onRetry}>
-        Retry
-      </button>
+      {requestId && <p className="request-id">Request ID: {requestId}</p>}
+      {onRetry && (
+        <button className="button" onClick={onRetry}>
+          Retry
+        </button>
+      )}
     </div>
   );
 }
