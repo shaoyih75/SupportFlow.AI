@@ -4,3 +4,5 @@ backend/.venv/
 __pycache__/
 *.py[cod]
 .DS_Store
+backend/.env
+.pytest_cache/

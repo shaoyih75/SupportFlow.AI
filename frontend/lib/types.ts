@@ -49,6 +49,9 @@ export type TicketCreate = {
   priority: TicketPriority;
 };
 
+// PATCH body: send only the fields that change.
+export type TicketUpdate = Partial<TicketCreate> & { status?: TicketStatus };
+
 export type Page<T> = {
   items: T[];
   page: number;

@@ -3,13 +3,13 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import tickets, workspaces
+from app.api import auth, tickets, workspaces
 from app.errors import register_error_handlers
 
 app = FastAPI(
     title="SupportFlow.AI API",
-    version="0.3.0",
-    description="Workspace and Ticket CRUD. In-memory repository; PostgreSQL comes next.",
+    version="0.4.0",
+    description="Workspace and Ticket CRUD on PostgreSQL (SQLAlchemy 2.0 + Alembic).",
 )
 
 # Only needed when the browser calls FastAPI directly (NEXT_PUBLIC_API_URL=http://localhost:8000/api).
@@ -39,5 +39,6 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")

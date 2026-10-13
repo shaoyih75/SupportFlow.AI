@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import TicketPriority, TicketStatus
 
@@ -13,13 +13,17 @@ class TicketCreate(BaseModel):
 
 
 class TicketUpdate(BaseModel):
-    # Used by PATCH /api/tickets/{ticket_id} (class challenge). Every field is optional.
+    # PATCH: every field is optional; only the fields the client sends are changed.
     subject: str | None = Field(default=None, min_length=3, max_length=200)
     priority: TicketPriority | None = None
     status: TicketStatus | None = None
 
 
 class TicketResponse(BaseModel):
+    # Built from the SQLAlchemy Ticket via model_validate(ticket). Only these fields are
+    # exposed; ORM-only columns such as updated_at stay internal.
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     workspace_id: UUID
     subject: str

@@ -156,3 +156,4 @@ a.ticket-card:hover { border-color: var(--accent); }
   .content { padding: 24px 16px; }
   .ticket-card { flex-direction: column; align-items: flex-start; }
 }
+.status-edit { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

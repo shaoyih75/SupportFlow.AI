@@ -25,6 +25,14 @@ class ForbiddenError(AppError):
     code = "FORBIDDEN"
 
 
+class ConflictError(AppError):
+    status_code = 409
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class NotFoundError(AppError):
     status_code = 404
 
