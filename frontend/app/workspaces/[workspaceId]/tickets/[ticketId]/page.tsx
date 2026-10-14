@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/AsyncStates";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ApiError, getTicket } from "@/lib/api";
-import type { Ticket } from "@/lib/types";
+import { ApiError, getTicket, updateTicket } from "@/lib/api";
+import type { Ticket, TicketStatus } from "@/lib/types";
+
+const STATUSES: TicketStatus[] = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 
 export default function TicketDetailPage() {
   const { workspaceId, ticketId } = useParams<{ workspaceId: string; ticketId: string }>();
@@ -15,19 +17,33 @@ export default function TicketDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getTicket(ticketId)
+    getTicket(workspaceId, ticketId)
       .then((t) => !cancelled && setTicket(t))
       .catch((err) => !cancelled && setError(err instanceof ApiError ? err : new ApiError(0, "UNKNOWN", "Failed to load ticket")))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [ticketId, reloadKey]);
+  }, [workspaceId, ticketId, reloadKey]);
+
+  async function changeStatus(status: TicketStatus) {
+    setUpdating(true);
+    setUpdateError(null);
+    try {
+      setTicket(await updateTicket(workspaceId, ticketId, { status }));
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : "Failed to update ticket");
+    } finally {
+      setUpdating(false);
+    }
+  }
 
   const backLink = (
     <Link href={`/workspaces/${workspaceId}/tickets`} className="button">
@@ -51,7 +67,23 @@ export default function TicketDetailPage() {
           <h2>{ticket.subject}</h2>
           <dl>
             <dt>Status</dt>
-            <dd><StatusBadge status={ticket.status} /></dd>
+            <dd className="status-edit">
+              <StatusBadge status={ticket.status} />
+              <select
+                className="select select-inline"
+                aria-label="Change status"
+                value={ticket.status}
+                disabled={updating}
+                onChange={(e) => changeStatus(e.target.value as TicketStatus)}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+              {updating && <span className="muted">Saving…</span>}
+            </dd>
             <dt>Priority</dt>
             <dd><StatusBadge status={ticket.priority} /></dd>
             <dt>Created</dt>
@@ -59,7 +91,7 @@ export default function TicketDetailPage() {
             <dt>ID</dt>
             <dd className="mono">{ticket.id}</dd>
           </dl>
-          {/* TODO (class challenge): status update control → PATCH /api/tickets/{id} */}
+          {updateError && <p className="field-error">{updateError}</p>}
         </section>
       )}
     </>

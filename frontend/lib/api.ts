@@ -9,6 +9,7 @@ import type {
   Ticket,
   TicketCreate,
   TicketPriority,
+  TicketUpdate,
   TicketStatus,
   Workspace,
 } from "./types";
@@ -120,8 +121,10 @@ export async function getTickets(workspaceId: string, query: TicketQuery = {}): 
   return { items: data.items.map(toTicket), page: data.page, pageSize: data.page_size, total: data.total };
 }
 
-export async function getTicket(ticketId: string): Promise<Ticket> {
-  return toTicket(await request<TicketJson>(`/tickets/${ticketId}`));
+// Ticket routes are nested under the workspace: the backend looks tickets up by
+// (workspace_id, ticket_id), so a ticket can never be read through another workspace.
+export async function getTicket(workspaceId: string, ticketId: string): Promise<Ticket> {
+  return toTicket(await request<TicketJson>(`/workspaces/${workspaceId}/tickets/${ticketId}`));
 }
 
 export async function createTicket(workspaceId: string, input: TicketCreate): Promise<Ticket> {
@@ -132,11 +135,17 @@ export async function createTicket(workspaceId: string, input: TicketCreate): Pr
   return toTicket(data);
 }
 
-export async function deleteTicket(ticketId: string): Promise<void> {
-  await request<void>(`/tickets/${ticketId}`, { method: "DELETE" });
+export async function updateTicket(workspaceId: string, ticketId: string, input: TicketUpdate): Promise<Ticket> {
+  const data = await request<TicketJson>(`/workspaces/${workspaceId}/tickets/${ticketId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return toTicket(data);
 }
 
-// TODO (class challenge): updateTicket(ticketId, input) → PATCH /tickets/{ticketId}
+export async function deleteTicket(workspaceId: string, ticketId: string): Promise<void> {
+  await request<void>(`/workspaces/${workspaceId}/tickets/${ticketId}`, { method: "DELETE" });
+}
 
 // ---------- documents + assistant (still mock) ----------
 

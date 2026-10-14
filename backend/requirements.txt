@@ -1,6 +1,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
-# testing (homework: at least 6 tests)
+# database
+sqlalchemy==2.0.41
+alembic==1.16.2
+psycopg[binary]==3.2.9
+python-dotenv==1.1.1
+
+# testing
 pytest==8.3.4
 httpx==0.28.1
