@@ -2,6 +2,133 @@
 
 AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD) and a Next.js + React frontend.
 
+> **第一次搭建环境？先看 [新人上手指南（中文，逐步说明）](docs/onboarding.zh-CN.md)。** 每一步都写了要输入什么、成功时会看到什么、出错了怎么办。
+
+## Getting started (new machine)
+
+From an empty Mac to the app running at http://localhost:3000 in about 20–30 minutes (mostly downloads). You will use **three terminal windows**: one for database commands, one for the backend, one for the frontend.
+
+### 0. Install the tools (once)
+
+| Tool | Check | Need | Install |
+|---|---|---|---|
+| Git | `git --version` | any | `xcode-select --install` |
+| Python | `python3 --version` | 3.11+ | `brew install python` |
+| Node.js | `node -v` | 20.9+ | `brew install node` |
+| Docker Desktop | `docker --version` | any | `brew install --cask docker-desktop` (details in [Database with Docker](#database-with-docker-step-by-step)) |
+| TablePlus (optional) | | | `brew install --cask tableplus` |
+
+After installing Docker Desktop, open it from Applications and wait until the whale icon in the menu bar stops animating. Then, in a **new** terminal:
+
+```bash
+docker run --rm hello-world     # prints "Hello from Docker!"
+```
+
+When Homebrew asks for `Password:`, type your Mac login password and press Enter. Nothing appears on screen while you type.
+
+### 1. Get the code
+
+```bash
+cd ~/Documents/projects                      # any folder works
+git clone https://github.com/shaoyih75/SupportFlow.AI.git
+cd SupportFlow.AI
+git checkout feature/postgres-persistence    # until this branch is merged into main
+```
+
+### 2. Start the database (terminal 1, project root)
+
+```bash
+docker compose up -d --wait db               # first run downloads PostgreSQL (~150 MB)
+docker compose ps                            # STATUS shows (healthy)
+```
+
+### 3. Set up and start the backend (terminal 2, `backend/`)
+
+```bash
+cd ~/Documents/projects/SupportFlow.AI/backend
+python3 -m venv .venv                        # virtual environment for this project
+source .venv/bin/activate                    # the prompt now starts with (.venv)
+pip install -r requirements.txt
+cp .env.example .env                         # DATABASE_URL / TEST_DATABASE_URL
+alembic upgrade head                         # create the six tables
+alembic current                              # shows: 0001 (head)
+python -m app.seed                           # demo users, workspaces, tickets (safe to re-run)
+uvicorn app.main:app --reload --port 8000
+```
+
+Check: http://localhost:8000/docs shows the API docs.
+
+Run `alembic upgrade head`, **not** `alembic revision --autogenerate`: the migration file already exists; `revision` is only for after you change `app/models.py`.
+
+### 4. Start the frontend (terminal 3, `frontend/`)
+
+```bash
+cd ~/Documents/projects/SupportFlow.AI/frontend
+npm install
+npm run dev                                  # http://localhost:3000
+```
+
+The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api/*`, so the backend must be running.
+
+### 5. Check that everything works
+
+1. Open **Tickets**: 5 demo tickets are listed.
+2. Create a ticket: it appears at the top.
+3. In terminal 2 press `Ctrl + C`, start `uvicorn app.main:app --reload --port 8000` again, refresh the page: **the new ticket is still there**.
+4. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
+
+```bash
+pytest -q                                    # 6 passed
+```
+
+### 6. Look at the tables in TablePlus (optional)
+
+Create a new **PostgreSQL** connection:
+
+| Field | Value |
+|---|---|
+| Host | `localhost` |
+| Port | `5432` |
+| User | `supportflow` |
+| Password | `supportflow` |
+| Database | `supportflow` |
+
+Click **Test** (fields turn green), then **Connect**, and double-click `tickets`. Press `⌘ + R` to refresh after changing data in the app. A connection with Database `supportflow_test` shows the test database, which pytest wipes on every run.
+
+Prefer the terminal? `docker compose exec db psql -U supportflow` opens a SQL shell (see [Step 5](#step-5-look-inside-the-database-optional) below).
+
+### Every day after that
+
+No installs, migrations or seeding needed; your data is still there.
+
+```bash
+# terminal 1, project root (Docker Desktop must be open)
+docker compose up -d --wait db
+
+# terminal 2, backend/
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
+
+# terminal 3, frontend/
+npm run dev
+```
+
+After pulling new code, also run `pip install -r requirements.txt` and `alembic upgrade head` (backend) and `npm install` (frontend) in case dependencies or migrations changed.
+
+### Common errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `command not found: docker` / `Cannot connect to the Docker daemon` | Docker Desktop not installed or not running | Open Docker, wait for the whale icon, open a new terminal |
+| `Connection refused … port 5432` | The database container is not running | `docker compose up -d --wait db` in the project root |
+| `No 'script_location' key found` | `alembic` was run outside `backend/` | `cd backend` first |
+| `Target database is not up to date` | `alembic revision` was run instead of `upgrade` | Run `alembic upgrade head` |
+| `command not found: alembic` / `uvicorn` / `pytest` | The virtual environment is not active | `source .venv/bin/activate` in `backend/` |
+| `address already in use` on 8000 or 3000 | Another app uses the port | Stop it, or use `--port 8001` and start the frontend with `BACKEND_URL=http://localhost:8001 npm run dev` |
+| The sidebar shows "API offline" | The backend is not running | Start uvicorn in terminal 2 |
+
+More Docker-specific problems: [Troubleshooting](#troubleshooting).
+
 ## Data mode
 
 - **Workspaces, Tickets and registration**: FastAPI on **PostgreSQL** (SQLAlchemy 2.0 + Alembic). Data survives API and container restarts.
@@ -194,30 +321,7 @@ To start over from an empty database: `docker compose down -v`, then repeat Step
 | `database "supportflow_test" does not exist` | The volume was created before the init script existed | `docker compose down -v` and start again (deletes local data) |
 | `password authentication failed` | `.env` does not match `docker-compose.yml` | Use the values from `backend/.env.example` |
 
-## Run it
-
-```bash
-# 1. Database (Docker Desktop must be running; details above)
-docker compose up -d --wait db          # returns once PostgreSQL is healthy
-
-# 2. Backend
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env                    # DATABASE_URL / TEST_DATABASE_URL
-alembic upgrade head                    # create the six tables
-python -m app.seed                      # demo users, workspaces, tickets (safe to re-run)
-uvicorn app.main:app --reload --port 8000
-```
-
-```bash
-# 3. Frontend (another terminal)
-cd frontend
-npm install
-npm run dev                             # http://localhost:3000
-```
-
-The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api/*`. API docs: http://localhost:8000/docs.
+## Development commands
 
 ### Database commands
 
