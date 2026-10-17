@@ -3,6 +3,8 @@
 AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD, JWT login, workspace RBAC) and a Next.js + React frontend.
 
 > **第一次搭建环境？先看 [新人上手指南（中文，逐步说明）](docs/onboarding.zh-CN.md)。** 每一步都写了要输入什么、成功时会看到什么、出错了怎么办。
+>
+> **第 6 课作业：** [注册页 + 新建 Workspace](docs/homework/lesson-06-register.md)。
 
 ## Getting started (new machine)
 
