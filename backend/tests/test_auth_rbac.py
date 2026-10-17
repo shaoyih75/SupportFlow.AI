@@ -15,6 +15,8 @@ from app.config import JWT_ALGORITHM, JWT_SECRET_KEY
 from app.models import Ticket, WorkspaceMember
 from app.seed import ACME_WS_ID, ALICE_ID, BOB_ID, BOB_WS_ID, NEW_TEAM_WS_ID
 
+from .conftest import login
+
 WS_A, WS_B = ACME_WS_ID, BOB_WS_ID
 
 
@@ -191,3 +193,34 @@ def test_insecure_idor_demo_route_is_not_mounted_by_default(client, alice, ticke
     response = client.get(f"/api/demo/insecure/tickets/{ticket_b.id}", headers=alice)
     assert response.status_code == 404
     assert "Bob's secret ticket" not in response.text
+
+
+# ---------- Self-service: register → log in → create a workspace ----------
+
+def test_register_rejects_invalid_input_with_field_errors(client):
+    response = client.post("/api/auth/register", json={"name": "", "email": "not-an-email", "password": "short"})
+    assert response.status_code == 422
+    fields = {d["field"] for d in response.json()["error"]["details"]}
+    assert fields == {"name", "email", "password"}  # the register form shows these next to each input
+
+
+def test_new_user_creates_a_workspace_as_owner_and_can_create_tickets(client):
+    registered = client.post(
+        "/api/auth/register", json={"name": "Dana", "email": "dana@example.com", "password": "dana-pass"}
+    )
+    assert registered.status_code == 201
+    headers = login(client, "dana@example.com", "dana-pass")
+    # A brand-new user only sees the personal workspace created at registration, nobody else's.
+    assert [w["id"] for w in client.get("/api/workspaces", headers=headers).json()] == [
+        registered.json()["personal_workspace_id"]
+    ]
+
+    created = client.post("/api/workspaces", json={"name": "Dana's Team"}, headers=headers)
+    assert created.status_code == 201
+    workspace = created.json()
+    assert (workspace["name"], workspace["role"], workspace["member_count"]) == ("Dana's Team", "OWNER", 1)
+
+    ticket = client.post(url(workspace["id"]), json={"subject": "First ticket", "priority": "LOW"}, headers=headers)
+    assert ticket.status_code == 201
+    assert ticket.json()["workspace_id"] == workspace["id"]
+    assert len(client.get("/api/workspaces", headers=headers).json()) == 2

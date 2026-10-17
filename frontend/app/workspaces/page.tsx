@@ -1,13 +1,58 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/AsyncStates";
 import { PageHeader } from "@/components/PageHeader";
 import { RequireAuth } from "@/components/RequireAuth";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ApiError, describeError, getWorkspaces } from "@/lib/api";
+import { ApiError, createWorkspace, describeError, getWorkspaces } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
+
+// Anyone logged in can create a workspace; the backend makes them its OWNER.
+function NewWorkspaceForm() {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!name.trim()) return setError("Enter a workspace name");
+    setSubmitting(true);
+    setError(null);
+    try {
+      const ws = await createWorkspace(name.trim());
+      router.push(`/workspaces/${ws.id}/tickets`);
+    } catch (err) {
+      setError(describeError(err));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="form-row new-workspace" onSubmit={handleSubmit}>
+      <div className="form-field grow">
+        <label className="field-label" htmlFor="workspace-name">
+          New workspace
+        </label>
+        <input
+          id="workspace-name"
+          className={`input${error ? " input-invalid" : ""}`}
+          placeholder="e.g. Acme Support"
+          maxLength={100}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        {error && <p className="field-error">{error}</p>}
+      </div>
+      <button className="button button-primary" type="submit" disabled={submitting}>
+        {submitting ? "Creating…" : "Create workspace"}
+      </button>
+    </form>
+  );
+}
 
 function WorkspaceList() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -31,12 +76,16 @@ function WorkspaceList() {
   return (
     <main className="content content-narrow">
       <PageHeader title="My workspaces" description="Only workspaces where you are an active member are listed." />
+      <NewWorkspaceForm />
       {loading && <LoadingState label="Loading workspaces…" />}
       {!loading && error && (
         <ErrorState message={describeError(error)} requestId={error.requestId} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
       {!loading && !error && workspaces.length === 0 && (
-        <EmptyState title="No workspaces yet" hint="Ask a workspace OWNER to add you." />
+        <EmptyState
+          title="No workspaces yet"
+          hint="Create your first workspace above, or ask a workspace OWNER to add you to theirs."
+        />
       )}
       {!loading && !error && workspaces.length > 0 && (
         <div className="list">

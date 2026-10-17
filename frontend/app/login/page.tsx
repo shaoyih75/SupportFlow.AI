@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ApiError, login } from "@/lib/api";
@@ -76,6 +77,9 @@ export default function LoginPage() {
         <button className="button button-primary" type="submit" disabled={submitting}>
           {submitting ? "Logging in…" : "Log in"}
         </button>
+        <p className="muted auth-switch">
+          New here? <Link href="/register">Create an account</Link>
+        </p>
 
         <div className="demo-accounts">
           <p className="field-label">Demo accounts · password: password123</p>

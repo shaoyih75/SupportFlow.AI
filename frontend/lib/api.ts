@@ -141,6 +141,18 @@ export async function login(email: string, password: string): Promise<string> {
   return data.access_token;
 }
 
+// Creates the account (plus a personal workspace on the backend). Does not log in: call login() next.
+// 409 EMAIL_ALREADY_EXISTS for a taken email, 422 with fieldErrors for invalid input.
+export async function register(name: string, email: string, password: string): Promise<User> {
+  // auth: false — a 401/409 here is about the form, not an expired session.
+  const data = await request<{ user: UserJson; personal_workspace_id: string }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name, email, password }),
+    auth: false,
+  });
+  return { id: data.user.id, name: data.user.name, email: data.user.email };
+}
+
 export async function getMe(): Promise<User> {
   const u = await request<UserJson>("/auth/me");
   return { id: u.id, name: u.name, email: u.email };
@@ -151,6 +163,12 @@ export async function getMe(): Promise<User> {
 export async function getWorkspaces(): Promise<Workspace[]> {
   const data = await request<WorkspaceJson[]>("/workspaces");
   return data.map(toWorkspace);
+}
+
+// The backend makes the current user the new workspace's OWNER (role comes back in the response).
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const data = await request<WorkspaceJson>("/workspaces", { method: "POST", body: JSON.stringify({ name }) });
+  return toWorkspace(data);
 }
 
 // 403 when the current user has no ACTIVE membership; also returns the user's role here.

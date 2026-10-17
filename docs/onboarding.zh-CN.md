@@ -352,6 +352,13 @@ npm run dev
 
 按钮被隐藏只是为了体验好；就算有人绕过前端直接调用 API，后端也会返回 403。
 
+### 6.1.2 注册自己的账号、创建 workspace
+
+1. 点 **Log out**，在登录页点 **Create an account**（地址是 `/register`）。
+2. 填名字、邮箱、密码（8–72 个字符）和确认密码，点 **Create account**：会自动登录并进入 "My workspaces"，里面已有一个你的私人 workspace（你是 OWNER）。
+3. 用同一个邮箱再注册一次：邮箱下面提示 "already registered"（后端返回的 409）。
+4. 在 "My workspaces" 顶部的 **New workspace** 输入名字，点 **Create workspace**：会跳到新 workspace 的 Tickets 页，你是它的 OWNER，可以直接建 ticket。
+
 ### 6.2 证明数据真的存进了数据库（本课核心）
 
 1. 回到**终端 2**，按 `Ctrl + C` 停掉后端。
@@ -375,7 +382,7 @@ source .venv/bin/activate
 pytest -q
 ```
 
-✅ 成功：最后一行是 `24 passed`。
+✅ 成功：最后一行是 `26 passed`。
 
 测试用的是另一个数据库 `supportflow_test`，不会影响你在网页上看到的数据。
 
@@ -502,6 +509,6 @@ docker compose up -d --wait db
 - [ ] 用 alice@example.com / password123 登录后，Acme Support 里能看到 5 个 ticket
 - [ ] 用 carol@example.com 登录，看不到创建表单和编辑按钮
 - [ ] 新建 ticket → 重启后端 → 刷新页面，ticket 还在
-- [ ] `pytest -q` 显示 `24 passed`
+- [ ] `pytest -q` 显示 `26 passed`
 
 更多原理说明（为什么要分层、约束和索引、Transaction、Alembic、Docker 数据存在哪）见项目根目录的 [README.md](../README.md)。

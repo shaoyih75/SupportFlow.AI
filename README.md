@@ -78,7 +78,7 @@ The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api
 4. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
 
 ```bash
-pytest -q                                    # 24 passed
+pytest -q                                    # 26 passed
 ```
 
 ### 6. Look at the tables in TablePlus (optional)
@@ -134,6 +134,7 @@ More Docker-specific problems: [Troubleshooting](#troubleshooting).
 - **Workspaces, Tickets and registration**: FastAPI on **PostgreSQL** (SQLAlchemy 2.0 + Alembic). Data survives API and container restarts.
 - **Documents and the AI Assistant**: still mock data inside the frontend (`frontend/lib/mock-data.ts`). The `documents` and `messages` tables already exist for the next lessons.
 - **Login**: email + password → JWT access token, sent as `Authorization: Bearer <token>`. Demo users (password `password123`): `alice@example.com` (OWNER of Acme), `bob@example.com` (MEMBER of Acme, OWNER of his own workspace), `carol@example.com` (VIEWER of Acme). See [Permission model](#permission-model).
+- **Your own account**: on the login page, click **Create an account** (`/register`). Registering creates a personal workspace where you are OWNER; on **My workspaces** use **New workspace** to create more (you become their OWNER and land on its Tickets page).
 
 ## Structure
 
@@ -389,6 +390,7 @@ pytest -q        # migrates supportflow_test (downgrade base → upgrade head), 
 | Bob's ticket id under Alice's workspace (GET / PATCH / DELETE) → 404, data unchanged | scoped repository query |
 | role / user_id smuggled in body or headers → still 403 | identity only from the token |
 | insecure IDOR demo route is not mounted by default | `ENABLE_IDOR_DEMO` flag |
+| register with invalid input → 422 per field; new user creates a workspace as OWNER and a ticket in it | `RegisterRequest` / `WorkspaceService.create` |
 
 ## Environment variables
 
