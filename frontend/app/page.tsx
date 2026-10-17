@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
-import { DEFAULT_WORKSPACE_ID } from "@/lib/config";
 
-// No auth yet: send everyone to the seeded default workspace.
+// /workspaces lists the workspaces of the logged-in user (and sends logged-out users to /login).
 export default function Home() {
-  redirect(`/workspaces/${DEFAULT_WORKSPACE_ID}`);
+  redirect("/workspaces");
 }

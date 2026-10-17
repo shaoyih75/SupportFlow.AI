@@ -6,7 +6,8 @@
 
 - 浏览器里打开 http://localhost:3000 能用的网站
 - 一个跑在 Docker 里的 PostgreSQL 数据库，里面有演示数据
-- 能通过的 6 个测试
+- 能通过的 24 个测试
+- 3 个演示账号（OWNER / MEMBER / VIEWER），能体验登录和权限控制
 
 ---
 
@@ -242,10 +243,11 @@ cp .env.example .env
 alembic upgrade head
 ```
 
-✅ 成功：最后一行是
+✅ 成功：最后两行是
 
 ```text
 INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial core schema
+INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, auth password hash and viewer role
 ```
 
 确认一下：
@@ -254,7 +256,7 @@ INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial core schema
 alembic current
 ```
 
-✅ 显示 `0001 (head)`。
+✅ 显示 `0002 (head)`。
 
 ⚠️ 这里只能用 `alembic upgrade head`。**不要**运行 `alembic revision --autogenerate`：那条命令是"写一个新的 migration 文件"，只有修改了 `models.py` 之后才需要用。
 
@@ -264,7 +266,22 @@ alembic current
 python -m app.seed
 ```
 
-✅ 第一次显示 `Seeded demo data.`；以后再运行会显示 `Demo data already present; nothing to do.`，不会重复写入。
+✅ 第一次显示：
+
+```text
+Seeded: user alice@example.com, user bob@example.com, user carol@example.com, workspace Acme Support, ...
+Demo logins: alice@ / bob@ / carol@example.com, password 'password123'
+```
+
+以后再运行会显示 `Demo data already present; nothing to do.`，不会重复写入。
+
+这一步创建了 3 个演示账号，**密码都是 `password123`**（仅限本地开发）：
+
+| 账号 | 角色 |
+|---|---|
+| `alice@example.com` | Acme Support 的 OWNER（全部权限） |
+| `bob@example.com` | Acme Support 的 MEMBER（能建、能改，不能删）；自己私人 workspace 的 OWNER |
+| `carol@example.com` | Acme Support 的 VIEWER（只能看） |
 
 ### 4.7 启动后端
 
@@ -316,13 +333,24 @@ npm run dev
 
 ### 6.1 在浏览器里试用
 
-打开 http://localhost:3000 ，会自动进入 **Acme Support** 的 Dashboard。
+打开 http://localhost:3000 ，会跳到**登录页**。
 
-1. 点左侧 **Tickets**：能看到 5 个 ticket。
-2. 在顶部表单输入标题（至少 3 个字），选优先级，点 **Create ticket**：新的 ticket 出现在列表最上面。
-3. 只输入 2 个字再提交：输入框下面出现红色的校验错误（这是后端返回的 422）。
-4. 点进一个 ticket，用 **Status** 下拉框改状态。
-5. 左上角切换到 **New Team**：显示 "No tickets yet"。
+1. 点下面的演示账号 **alice@example.com**（会自动填好邮箱和密码），再点 **Log in**。
+2. 进入 "My workspaces"，点 **Acme Support**，左侧能看到 "Your role: OWNER"。
+3. 点左侧 **Tickets**：能看到 5 个 ticket。
+4. 在顶部表单输入标题（至少 3 个字），选优先级，点 **Create ticket**：新的 ticket 出现在列表最上面。
+5. 只输入 2 个字再提交：输入框下面出现红色的校验错误（这是后端返回的 422）。
+6. 点进一个 ticket，用 **Status** 下拉框改状态；OWNER 还能看到 **Delete ticket**。
+7. 左上角切换到 **New Team**：显示 "No tickets yet"。
+
+### 6.1.1 体验权限控制
+
+1. 左下角点 **Log out**，再用 **carol@example.com** 登录（VIEWER）。
+2. 进入 Acme Support → Tickets：能看到 ticket，但**没有创建表单**，显示 "read-only access"；点进 ticket 也**没有状态下拉框和删除按钮**。
+3. 用 bob@example.com 登录（MEMBER）：能创建、能改状态，但**没有删除按钮**。
+4. 把浏览器地址栏改成 `http://localhost:3000/workspaces/33333333-3333-3333-3333-333333333333`，用 Alice 或 Carol 访问：显示 "You don't have access to this workspace"（后端返回的 403）。
+
+按钮被隐藏只是为了体验好；就算有人绕过前端直接调用 API，后端也会返回 403。
 
 ### 6.2 证明数据真的存进了数据库（本课核心）
 
@@ -347,7 +375,7 @@ source .venv/bin/activate
 pytest -q
 ```
 
-✅ 成功：最后一行是 `6 passed`。
+✅ 成功：最后一行是 `24 passed`。
 
 测试用的是另一个数据库 `supportflow_test`，不会影响你在网页上看到的数据。
 
@@ -455,6 +483,9 @@ docker compose up -d --wait db
 | `Target database is not up to date` | 运行了 `alembic revision` | 改成运行 `alembic upgrade head` |
 | `Address already in use` / `address already in use` | 8000 或 3000 端口被别的程序占了 | 关掉那个程序；或者后端用 `--port 8001`，前端用 `BACKEND_URL=http://localhost:8001 npm run dev` 启动 |
 | 网页左下角显示 "API offline" | 后端没在运行 | 去终端 2 启动 uvicorn |
+| 登录时显示 "Invalid email or password" | 密码不对，或者没运行 seed（演示账号还没有密码） | 密码是 `password123`；在 backend 目录运行 `python -m app.seed` |
+| 用着用着突然跳回登录页 | 登录 token 过期了（60 分钟），后端返回 401 | 重新登录即可，这是正常的 |
+| 显示 "You don't have access to this workspace" | 当前账号不是这个 workspace 的成员（403） | 换一个有权限的账号，或回到 "My workspaces" |
 | 网页显示 "Cannot reach the API server" | 同上 | 同上 |
 | `npm ERR!` | Node 版本太低，或者网络问题 | `node -v` 确认版本 ≥ 20.9，然后重新 `npm install` |
 | 输入密码时屏幕没反应 | 正常现象，终端不显示密码 | 照常输完按回车 |
@@ -466,10 +497,11 @@ docker compose up -d --wait db
 全部打勾，就说明环境搭好了：
 
 - [ ] `docker compose ps` 显示 `(healthy)`
-- [ ] `alembic current` 显示 `0001 (head)`
+- [ ] `alembic current` 显示 `0002 (head)`
 - [ ] http://localhost:8000/docs 能打开
-- [ ] http://localhost:3000 能看到 5 个 ticket
+- [ ] 用 alice@example.com / password123 登录后，Acme Support 里能看到 5 个 ticket
+- [ ] 用 carol@example.com 登录，看不到创建表单和编辑按钮
 - [ ] 新建 ticket → 重启后端 → 刷新页面，ticket 还在
-- [ ] `pytest -q` 显示 `6 passed`
+- [ ] `pytest -q` 显示 `24 passed`
 
 更多原理说明（为什么要分层、约束和索引、Transaction、Alembic、Docker 数据存在哪）见项目根目录的 [README.md](../README.md)。

@@ -1,9 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
-from app.models import Role
+from app.models import MembershipStatus, Role
 
 
 class WorkspaceCreate(BaseModel):
@@ -16,3 +16,18 @@ class WorkspaceResponse(BaseModel):
     role: Role  # the current user's role in this workspace
     member_count: int
     created_at: datetime
+
+
+class MemberCreate(BaseModel):
+    # Who and which role. Never "which workspace": that comes from the URL.
+    email: EmailStr
+    role: Role = "MEMBER"
+
+
+class MemberResponse(BaseModel):
+    user_id: UUID
+    name: str
+    email: str
+    role: Role
+    status: MembershipStatus
+    joined_at: datetime

@@ -39,6 +39,13 @@ class PostgresWorkspaceRepository:
         self.session.flush()
         return member
 
+    def get_membership(self, workspace_id: UUID, user_id: UUID) -> WorkspaceMember | None:
+        """Any status: used when adding a member, to detect an existing row."""
+        stmt = select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == user_id
+        )
+        return self.session.scalar(stmt)
+
     def get_active_membership(self, workspace_id: UUID, user_id: UUID) -> WorkspaceMember | None:
         stmt = select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
@@ -56,6 +63,15 @@ class PostgresWorkspaceRepository:
         )
         return [(ws, m) for ws, m in self.session.execute(stmt).all()]
 
+    def list_members(self, workspace_id: UUID) -> list[tuple[WorkspaceMember, User]]:
+        stmt = (
+            select(WorkspaceMember, User)
+            .join(User, User.id == WorkspaceMember.user_id)
+            .where(WorkspaceMember.workspace_id == workspace_id)
+            .order_by(WorkspaceMember.joined_at)
+        )
+        return [(m, u) for m, u in self.session.execute(stmt).all()]
+
     def count_members(self, workspace_id: UUID) -> int:
         stmt = select(func.count()).where(
             WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.status == "ACTIVE"
@@ -72,8 +88,9 @@ class PostgresTicketRepository:
         self.session.flush()
         return ticket
 
-    def get(self, workspace_id: UUID, ticket_id: UUID) -> Ticket | None:
-        # Filter by BOTH ids. Never fetch by ticket_id alone and "remember" to check later.
+    def get_in_workspace(self, *, workspace_id: UUID, ticket_id: UUID) -> Ticket | None:
+        # Filter by BOTH ids in one query. Never fetch by ticket_id alone and "remember"
+        # to compare workspaces later: that is how IDOR bugs happen.
         stmt = select(Ticket).where(Ticket.id == ticket_id, Ticket.workspace_id == workspace_id)
         return self.session.scalar(stmt)
 

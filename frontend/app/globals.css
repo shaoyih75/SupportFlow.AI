@@ -157,3 +157,20 @@ a.ticket-card:hover { border-color: var(--accent); }
   .ticket-card { flex-direction: column; align-items: flex-start; }
 }
 .status-edit { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* Auth & roles */
+.sidebar-role { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.sidebar-user { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sidebar-user p { margin: 0; display: flex; flex-direction: column; }
+.sidebar-user .sidebar-foot { margin-top: 0; }
+.content-narrow { max-width: 720px; margin: 0 auto; }
+.notice { margin: 0 0 20px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--muted); }
+.button-danger { border-color: var(--danger); color: var(--danger); }
+.danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.login { display: grid; place-items: center; min-height: 100vh; padding: 24px 16px; }
+.login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 14px; padding: 28px; }
+.login-card h1 { margin: 0; font-size: 22px; }
+.login-card .brand { margin-bottom: 0; }
+.demo-accounts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+.demo-account { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; text-align: left; font-size: 13px; }
+.demo-account:hover { border-color: var(--accent); }

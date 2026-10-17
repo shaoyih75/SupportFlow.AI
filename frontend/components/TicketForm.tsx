@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ApiError, createTicket, type FieldErrors } from "@/lib/api";
+import { ApiError, createTicket, describeError, type FieldErrors } from "@/lib/api";
 import type { Ticket, TicketPriority } from "@/lib/types";
 
 const PRIORITIES: TicketPriority[] = ["LOW", "MEDIUM", "HIGH"];
@@ -34,7 +34,7 @@ export function TicketForm({ workspaceId, onCreated }: TicketFormProps) {
       if (err instanceof ApiError && err.status === 422) {
         setFieldErrors(err.fieldErrors);
       } else {
-        setFormError(err instanceof Error ? err.message : "Failed to create ticket");
+        setFormError(describeError(err));
       }
     } finally {
       setSubmitting(false);
