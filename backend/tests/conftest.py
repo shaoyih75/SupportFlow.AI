@@ -54,6 +54,28 @@ def client():
     return TestClient(app)
 
 
+def login(client: TestClient, email: str, password: str = "password123") -> dict[str, str]:
+    """Log in through the real endpoint and return the Authorization header."""
+    response = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture
+def alice(client):  # OWNER of Acme + New Team
+    return login(client, "alice@example.com")
+
+
+@pytest.fixture
+def bob(client):  # OWNER of Bob's workspace, MEMBER of Acme
+    return login(client, "bob@example.com")
+
+
+@pytest.fixture
+def carol(client):  # VIEWER of Acme
+    return login(client, "carol@example.com")
+
+
 @pytest.fixture
 def session():
     with SessionLocal() as s:

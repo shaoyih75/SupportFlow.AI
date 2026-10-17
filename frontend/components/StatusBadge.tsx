@@ -1,8 +1,8 @@
-import type { DocumentStatus, JobStatus, TicketPriority, TicketStatus } from "@/lib/types";
+import type { DocumentStatus, JobStatus, TicketPriority, TicketStatus, WorkspaceRole } from "@/lib/types";
 
 // StatusBadge only needs the status value, not the whole Document/Ticket.
 // Smaller props = lower coupling = reusable on every page.
-export type BadgeValue = DocumentStatus | JobStatus | TicketStatus | TicketPriority;
+export type BadgeValue = DocumentStatus | JobStatus | TicketStatus | TicketPriority | WorkspaceRole;
 
 type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
@@ -19,6 +19,9 @@ const TONES: Record<BadgeValue, Tone> = {
   PENDING: "info",
   OPEN: "info",
   LOW: "neutral",
+  OWNER: "info",
+  MEMBER: "neutral",
+  VIEWER: "neutral",
 };
 
 type StatusBadgeProps = {

@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 class AppError(Exception):
     status_code = 500
     code = "INTERNAL_ERROR"
+    headers: dict[str, str] | None = None
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -16,11 +17,16 @@ class AppError(Exception):
 
 
 class UnauthorizedError(AppError):
+    """401: no trusted identity yet (missing, invalid or expired token). The client should log in."""
+
     status_code = 401
     code = "UNAUTHORIZED"
+    headers = {"WWW-Authenticate": "Bearer"}  # tells the client which auth scheme to use
 
 
 class ForbiddenError(AppError):
+    """403: identity is known, but it may not enter this workspace or do this action."""
+
     status_code = 403
     code = "FORBIDDEN"
 
@@ -41,17 +47,17 @@ class NotFoundError(AppError):
         self.code = f"{resource.upper()}_NOT_FOUND"
 
 
-def _error(request: Request, status_code: int, code: str, message: str, details=None) -> JSONResponse:
+def _error(request: Request, status_code: int, code: str, message: str, details=None, headers=None) -> JSONResponse:
     body = {"code": code, "message": message, "request_id": getattr(request.state, "request_id", None)}
     if details is not None:
         body["details"] = details
-    return JSONResponse(status_code=status_code, content={"error": body})
+    return JSONResponse(status_code=status_code, content={"error": body}, headers=headers)
 
 
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError):
-        return _error(request, exc.status_code, exc.code, exc.message)
+        return _error(request, exc.status_code, exc.code, exc.message, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError):

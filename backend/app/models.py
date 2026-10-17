@@ -13,8 +13,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, utcnow
 
-Role = Literal["OWNER", "MEMBER"]
-MembershipStatus = Literal["ACTIVE", "REMOVED"]
+Role = Literal["OWNER", "MEMBER", "VIEWER"]
+MembershipStatus = Literal["ACTIVE", "INVITED", "SUSPENDED", "REMOVED"]
 TicketStatus = Literal["OPEN", "IN_PROGRESS", "RESOLVED"]
 TicketPriority = Literal["LOW", "MEDIUM", "HIGH"]
 DocumentStatus = Literal["UPLOADED", "PROCESSING", "READY", "FAILED"]
@@ -35,6 +35,8 @@ class User(TimestampMixin, Base):
     # unique=True is a constraint: two concurrent registrations with the same email
     # cannot both succeed, even if both passed a Python "does it exist?" check.
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # bcrypt hash, never the password itself. Nullable: a user without one cannot log in.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")
 
@@ -59,8 +61,9 @@ class WorkspaceMember(Base):
         # Query: "workspaces I belong to" → WHERE user_id = ? (the unique index above starts
         # with workspace_id, so it cannot serve this lookup).
         Index("ix_workspace_members_user_id", "user_id"),
-        CheckConstraint("role IN ('OWNER', 'MEMBER')", name="role_valid"),
-        CheckConstraint("status IN ('ACTIVE', 'REMOVED')", name="status_valid"),
+        CheckConstraint("role IN ('OWNER', 'MEMBER', 'VIEWER')", name="role_valid"),
+        # Only ACTIVE grants access; the row is kept for INVITED / SUSPENDED / REMOVED.
+        CheckConstraint("status IN ('ACTIVE', 'INVITED', 'SUSPENDED', 'REMOVED')", name="status_valid"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

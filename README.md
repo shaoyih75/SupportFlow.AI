@@ -1,6 +1,6 @@
 # SupportFlow.AI
 
-AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD) and a Next.js + React frontend.
+AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD, JWT login, workspace RBAC) and a Next.js + React frontend.
 
 > **第一次搭建环境？先看 [新人上手指南（中文，逐步说明）](docs/onboarding.zh-CN.md)。** 每一步都写了要输入什么、成功时会看到什么、出错了怎么办。
 
@@ -51,8 +51,8 @@ source .venv/bin/activate                    # the prompt now starts with (.venv
 pip install -r requirements.txt
 cp .env.example .env                         # DATABASE_URL / TEST_DATABASE_URL
 alembic upgrade head                         # create the six tables
-alembic current                              # shows: 0001 (head)
-python -m app.seed                           # demo users, workspaces, tickets (safe to re-run)
+alembic current                              # shows: 0002 (head)
+python -m app.seed                           # demo users (password123), workspaces, tickets (safe to re-run)
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -72,13 +72,13 @@ The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api
 
 ### 5. Check that everything works
 
-1. Open **Tickets**: 5 demo tickets are listed.
+1. Log in as `alice@example.com` / `password123` (or click a demo account), open **Acme Support → Tickets**: 5 demo tickets are listed.
 2. Create a ticket: it appears at the top.
 3. In terminal 2 press `Ctrl + C`, start `uvicorn app.main:app --reload --port 8000` again, refresh the page: **the new ticket is still there**.
 4. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
 
 ```bash
-pytest -q                                    # 6 passed
+pytest -q                                    # 24 passed
 ```
 
 ### 6. Look at the tables in TablePlus (optional)
@@ -133,14 +133,14 @@ More Docker-specific problems: [Troubleshooting](#troubleshooting).
 
 - **Workspaces, Tickets and registration**: FastAPI on **PostgreSQL** (SQLAlchemy 2.0 + Alembic). Data survives API and container restarts.
 - **Documents and the AI Assistant**: still mock data inside the frontend (`frontend/lib/mock-data.ts`). The `documents` and `messages` tables already exist for the next lessons.
-- No login yet: requests act as the seeded user Alice. Send `X-User-Id: 00000000-0000-0000-0000-000000000002` to act as Bob.
+- **Login**: email + password → JWT access token, sent as `Authorization: Bearer <token>`. Demo users (password `password123`): `alice@example.com` (OWNER of Acme), `bob@example.com` (MEMBER of Acme, OWNER of his own workspace), `carol@example.com` (VIEWER of Acme). See [Permission model](#permission-model).
 
 ## Structure
 
 ```text
 docker-compose.yml        # PostgreSQL 17 (+ supportflow_test database for pytest)
 backend/
-  alembic/versions/       # versioned schema changes (0001_initial_core_schema)
+  alembic/versions/       # versioned schema changes (0001 core schema, 0002 auth + VIEWER role)
   app/
     main.py               # app, CORS, request id middleware, routers
     api/                  # Routers: HTTP → function calls, status codes
@@ -148,8 +148,9 @@ backend/
     services/             # business rules, membership checks, transaction boundaries
     repositories/         # base.py (Protocols) + postgres.py (SQLAlchemy queries)
     models.py             # SQLAlchemy ORM models = how data is stored
+    auth/security.py      # bcrypt password hashing, JWT create/decode
     db/                   # Base, engine, Session, transaction()
-    deps.py               # Depends(): session, repositories, services, current user
+    deps.py               # Depends(): current user (JWT), membership + role checks, services
     seed.py               # demo data with fixed ids
   tests/                  # integration tests against real PostgreSQL
 frontend/
@@ -215,6 +216,36 @@ erDiagram
 | `uq_workspace_member (workspace_id, user_id)` | Uniqueness, and also the membership check run on every workspace-scoped request |
 
 `documents` and `messages` have no extra indexes yet: no API queries them so far.
+
+## Permission model
+
+Every workspace request answers four questions, in this order. The first "no" stops the request **before** any business logic or write runs.
+
+| Step | Question | Where | Fails with |
+|---|---|---|---|
+| Authentication | Who are you? | `get_current_user`: verifies the JWT, loads the user by its `sub` | **401** missing / invalid / expired token |
+| Membership | Do you belong to this workspace? | `require_workspace_member`: an **ACTIVE** row in `workspace_members` | **403** (also for an unknown workspace id, so ids can't be probed) |
+| Authorization | May your role do this? | `require_workspace_role(...)` | **403** |
+| Tenant isolation | Is the resource in this workspace? | `TicketRepository.get_in_workspace(workspace_id=, ticket_id=)`: one query with both ids | **404**: from your scope it does not exist |
+
+**Identity comes only from the token.** The JWT's `sub` is the user id; it holds no roles. Roles and membership status are read from the database on every request, so removing or suspending a member takes effect immediately, not when their token expires (60 min). The API never trusts a `user_id`, `role` or workspace list sent by the client.
+
+**Membership status:** only `ACTIVE` grants access. `INVITED`, `SUSPENDED` and `REMOVED` rows are kept for history but are refused.
+
+**Roles (RBAC):**
+
+| Action | OWNER | MEMBER | VIEWER |
+|---|---|---|---|
+| View the workspace, its tickets and members | ✅ | ✅ | ✅ |
+| Create and update tickets | ✅ | ✅ | ❌ 403 |
+| Delete tickets | ✅ | ❌ 403 | ❌ 403 |
+| Add or remove members | ✅ | ❌ 403 | ❌ 403 |
+
+The table lives in one place, `app/deps.py` (`can_read`, `can_write_tickets`, `can_delete_tickets`, `can_manage_members`). The frontend hides controls a role can't use (VIEWER sees no create form or status menu; only OWNER sees Delete), but that is only for convenience: the API refuses the request anyway.
+
+**IDOR, before and after.** Before: `GET /tickets/{ticket_id}` loaded the ticket by its global id, so any logged-in user who knew Bob's ticket id could read it (200). After: the route is `/workspaces/{workspace_id}/tickets/{ticket_id}`, membership is checked for `workspace_id`, and the query filters on both ids, so Alice gets 403 in Bob's workspace and 404 when she puts Bob's ticket id under her own workspace. To show the bug in class, start the API with `ENABLE_IDOR_DEMO=1`, which mounts the deliberately insecure `GET /api/demo/insecure/tickets/{ticket_id}` (off by default; a test checks it stays off).
+
+**Token storage (frontend).** The demo keeps the token in `localStorage`. Production apps usually use a `Secure`, `HttpOnly`, `SameSite` cookie instead (scripts can't read it), which then also needs CSRF protection.
 
 ## Database with Docker (step by step)
 
@@ -344,14 +375,33 @@ pytest -q        # migrates supportflow_test (downgrade base → upgrade head), 
 
 | Test | Who stops the bad case |
 |---|---|
+| **Lesson 4** | |
 | ticket persists after API restart | PostgreSQL (data is not in process memory) |
 | ticket with a missing workspace | PostgreSQL foreign key |
 | duplicate membership | PostgreSQL unique constraint |
 | read a ticket through another workspace → 404 | Repository query scoped by `(workspace_id, ticket_id)` |
 | register rolls back when membership fails | Service transaction boundary |
 | duplicate email → 409 | Service check + unique constraint |
+| **Lesson 6** (`tests/test_auth_rbac.py`) | |
+| missing, malformed, expired, forged token → 401 | `get_current_user` |
+| Alice in Bob's workspace / unknown workspace / suspended member → 403 | `require_workspace_member` |
+| VIEWER create/update, MEMBER delete, non-OWNER manage members → 403 | `require_workspace_role` |
+| Bob's ticket id under Alice's workspace (GET / PATCH / DELETE) → 404, data unchanged | scoped repository query |
+| role / user_id smuggled in body or headers → still 403 | identity only from the token |
+| insecure IDOR demo route is not mounted by default | `ENABLE_IDOR_DEMO` flag |
 
-## Environment variables (frontend)
+## Environment variables
+
+Backend (`backend/.env`, see `.env.example`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | local Docker database | SQLAlchemy connection string |
+| `JWT_SECRET_KEY` | an insecure dev-only value | Signs access tokens. **Set a long random value outside development**: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Token lifetime |
+| `ENABLE_IDOR_DEMO` | off | `1` mounts the deliberately insecure Class 6 demo endpoint |
+
+Frontend:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -362,17 +412,26 @@ Copy `frontend/.env.example` to `frontend/.env.local` to change them.
 
 ## API surface
 
-| Method | Endpoint | Success | Notes |
-|---|---|---|---|
-| GET | `/health` | 200 | |
-| POST | `/api/auth/register` | 201 | user + personal workspace + OWNER membership in one transaction; 409 on duplicate email |
-| GET | `/api/workspaces` | 200 | workspaces the current user belongs to |
-| POST | `/api/workspaces` | 201 | creator becomes OWNER |
-| GET | `/api/workspaces/{wid}/tickets` | 200 | `page`, `page_size` (1–100), `status`, `priority` |
-| POST | `/api/workspaces/{wid}/tickets` | 201 | body `{subject, priority}`; status starts `OPEN` |
-| GET | `/api/workspaces/{wid}/tickets/{id}` | 200 | 404 if the ticket is not in that workspace |
-| PATCH | `/api/workspaces/{wid}/tickets/{id}` | 200 | any of `subject`, `priority`, `status` |
-| DELETE | `/api/workspaces/{wid}/tickets/{id}` | 204 | |
+| Method | Endpoint | Success | Who | Notes |
+|---|---|---|---|---|
+| GET | `/health` | 200 | anyone | |
+| POST | `/api/auth/register` | 201 | anyone | user + personal workspace + OWNER membership in one transaction; 409 on duplicate email |
+| POST | `/api/auth/login` | 200 | anyone | JSON `{email, password}` → `{access_token, token_type: "bearer"}`; 401 on bad credentials |
+| POST | `/api/auth/token` | 200 | anyone | same, as a form (`username` = email): powers Swagger's **Authorize** button |
+| GET | `/api/auth/me` | 200 | logged in | the token's user |
+| GET | `/api/workspaces` | 200 | logged in | workspaces with an ACTIVE membership, with your role |
+| POST | `/api/workspaces` | 201 | logged in | creator becomes OWNER |
+| GET | `/api/workspaces/{wid}` | 200 | any member | includes your role |
+| GET | `/api/workspaces/{wid}/members` | 200 | any member | |
+| POST | `/api/workspaces/{wid}/members` | 201 | OWNER | body `{email, role}`; 404 unknown email, 409 already a member |
+| DELETE | `/api/workspaces/{wid}/members/{user_id}` | 204 | OWNER | sets status REMOVED; 409 for the last OWNER |
+| GET | `/api/workspaces/{wid}/tickets` | 200 | any member | `page`, `page_size` (1–100), `status`, `priority` |
+| POST | `/api/workspaces/{wid}/tickets` | 201 | OWNER, MEMBER | body `{subject, priority}`; status starts `OPEN` |
+| GET | `/api/workspaces/{wid}/tickets/{id}` | 200 | any member | 404 if the ticket is not in that workspace |
+| PATCH | `/api/workspaces/{wid}/tickets/{id}` | 200 | OWNER, MEMBER | any of `subject`, `priority`, `status` |
+| DELETE | `/api/workspaces/{wid}/tickets/{id}` | 204 | OWNER | |
+
+Every workspace route answers 401 without a valid token and 403 for non-members, before checking anything else.
 
 Ticket item routes moved from `/api/tickets/{id}` (Lesson 2) under the workspace, so every ticket lookup is scoped by `(workspace_id, ticket_id)`. Request and response bodies did not change.
 
@@ -387,24 +446,42 @@ Errors always look like:
 ### curl examples
 
 ```bash
-WS=11111111-1111-1111-1111-111111111111   # seeded "Acme Support"
+API=http://localhost:8000/api
+WS_A=11111111-1111-1111-1111-111111111111   # Acme Support (Alice OWNER, Bob MEMBER, Carol VIEWER)
+WS_B=33333333-3333-3333-3333-333333333333   # Bob's Private Workspace
 
-curl "localhost:8000/api/workspaces/$WS/tickets?status=OPEN&page=1&page_size=20"
+login() {
+  curl -s -X POST "$API/auth/login" -H "Content-Type: application/json" \
+    -d "{\"email\": \"$1@example.com\", \"password\": \"password123\"}" \
+    | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])"
+}
+ALICE_TOKEN=$(login alice)
+CAROL_TOKEN=$(login carol)
 
-curl -X POST "localhost:8000/api/workspaces/$WS/tickets" \
-  -H "Content-Type: application/json" \
-  -d '{"subject": "Customer cannot log in", "priority": "HIGH"}'
+# 401: no token
+curl -i "$API/workspaces/$WS_A/tickets"
 
-# 422: subject too short
-curl -X POST "localhost:8000/api/workspaces/$WS/tickets" \
+# 200: Alice lists her tickets
+curl -H "Authorization: Bearer $ALICE_TOKEN" "$API/workspaces/$WS_A/tickets?status=OPEN"
+
+# 201: create · 422: subject too short
+curl -X POST "$API/workspaces/$WS_A/tickets" -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" -d '{"subject": "Customer cannot log in", "priority": "HIGH"}'
+curl -X POST "$API/workspaces/$WS_A/tickets" -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" -d '{"subject": "ab", "priority": "HIGH"}'
 
-# 404: an Acme ticket read through the "New Team" workspace
-curl "localhost:8000/api/workspaces/22222222-2222-2222-2222-222222222222/tickets/<acme-ticket-id>"
-
 # 403: Alice is not a member of Bob's workspace
-curl "localhost:8000/api/workspaces/33333333-3333-3333-3333-333333333333/tickets"
+curl -i -H "Authorization: Bearer $ALICE_TOKEN" "$API/workspaces/$WS_B/tickets"
+
+# 404: Bob's ticket id put under Alice's workspace (the IDOR fix)
+curl -i -H "Authorization: Bearer $ALICE_TOKEN" "$API/workspaces/$WS_A/tickets/<bob-ticket-id>"
+
+# 403: Carol is a VIEWER
+curl -i -X PATCH "$API/workspaces/$WS_A/tickets/<acme-ticket-id>" -H "Authorization: Bearer $CAROL_TOKEN" \
+  -H "Content-Type: application/json" -d '{"status": "RESOLVED"}'
 ```
+
+In Swagger (http://localhost:8000/docs): click **Authorize**, enter `alice@example.com` / `password123`, and every request is sent with the token.
 
 ## Remote access (Cloudflare quick tunnel)
 
