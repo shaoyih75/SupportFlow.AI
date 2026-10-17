@@ -1,6 +1,10 @@
 // Frontend/backend boundary. Every page gets data through these functions.
 // Workspaces and Tickets come from FastAPI; Documents and the Assistant are still mock.
+//
+// Auth: every request carries `Authorization: Bearer <token>`. The UI may hide buttons a role
+// can't use, but the backend re-checks every request: the frontend is never the security boundary.
 
+import { clearAccessToken, getAccessToken, redirectToLogin } from "./auth";
 import { mockDocuments } from "./mock-data";
 import type {
   AssistantAnswer,
@@ -11,6 +15,7 @@ import type {
   TicketPriority,
   TicketUpdate,
   TicketStatus,
+  User,
   Workspace,
 } from "./types";
 
@@ -49,19 +54,48 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Human messages per status, so 401 / 403 / 404 never all look like "something broke".
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "Your session has expired. Please log in again.",
+  403: "You do not have permission for this action.",
+  404: "Not found, or not visible to you.",
+};
+
+type RequestOptions = RequestInit & { auth?: boolean };
+
+async function request<T>(path: string, { auth = true, ...init }: RequestOptions = {}): Promise<T> {
+  const token = auth ? getAccessToken() : null;
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...init.headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     });
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", "Cannot reach the API server. Is FastAPI running?");
   }
-  if (!response.ok) throw await ApiError.fromResponse(response);
+
+  if (!response.ok) {
+    const error = await ApiError.fromResponse(response);
+    if (response.status === 401 && auth) {
+      // No trusted identity: drop the stale token and send the user to log in.
+      clearAccessToken();
+      redirectToLogin();
+    }
+    throw error;
+  }
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+// What to show the user. The backend's own message stays on error.message for debugging.
+export function describeError(error: unknown): string {
+  if (error instanceof ApiError) return STATUS_MESSAGES[error.status] ?? error.message;
+  return error instanceof Error ? error.message : "Something went wrong";
 }
 
 // ---------- snake_case JSON → camelCase types ----------
@@ -93,11 +127,35 @@ const toTicket = (t: TicketJson): Ticket => ({
   createdAt: t.created_at,
 });
 
+// ---------- auth ----------
+
+type UserJson = { id: string; name: string; email: string };
+
+export async function login(email: string, password: string): Promise<string> {
+  // auth: false — no token yet, and a 401 here means "wrong password", not "session expired".
+  const data = await request<{ access_token: string; token_type: string }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+    auth: false,
+  });
+  return data.access_token;
+}
+
+export async function getMe(): Promise<User> {
+  const u = await request<UserJson>("/auth/me");
+  return { id: u.id, name: u.name, email: u.email };
+}
+
 // ---------- workspaces ----------
 
 export async function getWorkspaces(): Promise<Workspace[]> {
   const data = await request<WorkspaceJson[]>("/workspaces");
   return data.map(toWorkspace);
+}
+
+// 403 when the current user has no ACTIVE membership; also returns the user's role here.
+export async function getWorkspace(workspaceId: string): Promise<Workspace> {
+  return toWorkspace(await request<WorkspaceJson>(`/workspaces/${workspaceId}`));
 }
 
 // ---------- tickets ----------

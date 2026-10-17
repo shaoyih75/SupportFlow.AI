@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getWorkspaces } from "@/lib/api";
-import type { Workspace } from "@/lib/types";
+import { getMe, getWorkspaces } from "@/lib/api";
+import { clearAccessToken } from "@/lib/auth";
+import type { User, Workspace } from "@/lib/types";
+import { StatusBadge } from "./StatusBadge";
+import { useWorkspace } from "./WorkspaceProvider";
 
 type SidebarProps = {
   workspaceId: string;
@@ -20,18 +23,30 @@ const NAV_ITEMS = [
 export function Sidebar({ workspaceId }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { role } = useWorkspace();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [me, setMe] = useState<User | null>(null);
   const [apiOffline, setApiOffline] = useState(false);
 
   useEffect(() => {
+    // Only workspaces where the current user has an ACTIVE membership come back.
     getWorkspaces()
       .then(setWorkspaces)
       .catch(() => setApiOffline(true));
+    getMe()
+      .then(setMe)
+      .catch(() => setMe(null));
   }, []);
+
+  function logout() {
+    clearAccessToken();
+    router.replace("/login");
+  }
 
   const base = `/workspaces/${workspaceId}`;
   // Keep the user on the same section when switching workspace.
   const section = pathname.slice(base.length);
+  const inList = workspaces.some((w) => w.id === workspaceId);
 
   return (
     <aside className="sidebar">
@@ -48,13 +63,18 @@ export function Sidebar({ workspaceId }: SidebarProps) {
         value={workspaceId}
         onChange={(e) => router.push(`/workspaces/${e.target.value}${section}`)}
       >
-        {workspaces.length === 0 && <option value={workspaceId}>{workspaceId}</option>}
+        {!inList && <option value={workspaceId}>{workspaces.length ? "No access" : "Loading…"}</option>}
         {workspaces.map((w) => (
           <option key={w.id} value={w.id}>
             {w.name}
           </option>
         ))}
       </select>
+      {role && (
+        <p className="sidebar-role">
+          Your role <StatusBadge status={role} />
+        </p>
+      )}
 
       <nav className="nav">
         {NAV_ITEMS.map((item) => {
@@ -68,9 +88,20 @@ export function Sidebar({ workspaceId }: SidebarProps) {
         })}
       </nav>
 
-      <p className="sidebar-foot">
-        {apiOffline ? "⚠ API offline: start FastAPI on :8000" : "Tickets: FastAPI · Documents: mock"}
-      </p>
+      <div className="sidebar-user">
+        {me && (
+          <p>
+            <strong>{me.name}</strong>
+            <span className="muted">{me.email}</span>
+          </p>
+        )}
+        <button className="button" onClick={logout}>
+          Log out
+        </button>
+        <p className="sidebar-foot">
+          {apiOffline ? "⚠ API offline: start FastAPI on :8000" : "Tickets: FastAPI · Documents: mock"}
+        </p>
+      </div>
     </aside>
   );
 }

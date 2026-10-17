@@ -1,7 +1,13 @@
 // Frontend contract types. Field names are camelCase here; lib/api.ts maps
 // the FastAPI snake_case JSON into these shapes, so components never see snake_case.
 
-export type WorkspaceRole = "OWNER" | "MEMBER";
+export type WorkspaceRole = "OWNER" | "MEMBER" | "VIEWER";
+
+export type User = {
+  id: string;
+  name: string;
+  email: string;
+};
 
 export type Workspace = {
   id: string;

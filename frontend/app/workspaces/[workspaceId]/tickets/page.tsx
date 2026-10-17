@@ -6,7 +6,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/AsyncStates";
 import { PageHeader } from "@/components/PageHeader";
 import { TicketCard } from "@/components/TicketCard";
 import { TICKET_SUBJECT_INPUT_ID, TicketForm } from "@/components/TicketForm";
-import { ApiError, getTickets } from "@/lib/api";
+import { useWorkspace } from "@/components/WorkspaceProvider";
+import { ApiError, describeError, getTickets } from "@/lib/api";
 import type { Page, Ticket, TicketStatus } from "@/lib/types";
 
 type StatusFilter = "ALL" | TicketStatus;
@@ -15,6 +16,7 @@ const PAGE_SIZE = 5;
 
 export default function TicketsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { canWrite, role } = useWorkspace();
   const [data, setData] = useState<Page<Ticket> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiError | null>(null);
@@ -59,7 +61,11 @@ export default function TicketsPage() {
     <>
       <PageHeader title="Tickets" description="Customer support tickets, served by FastAPI." />
 
-      <TicketForm workspaceId={workspaceId} onCreated={handleCreated} />
+      {canWrite ? (
+        <TicketForm workspaceId={workspaceId} onCreated={handleCreated} />
+      ) : (
+        <p className="notice">You have read-only access ({role}). Ask an OWNER for MEMBER access to create tickets.</p>
+      )}
 
       <div className="toolbar">
         <div className="segmented" role="group" aria-label="Filter by status">
@@ -74,16 +80,18 @@ export default function TicketsPage() {
 
       {loading && <LoadingState label="Loading tickets…" />}
       {!loading && error && (
-        <ErrorState message={error.message} requestId={error.requestId} onRetry={() => setReloadKey((k) => k + 1)} />
+        <ErrorState message={describeError(error)} requestId={error.requestId} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
       {!loading && !error && data && data.items.length === 0 && (
         <EmptyState
           title={statusFilter === "ALL" ? "No tickets yet" : "No tickets with this status"}
           hint="Tickets created in this workspace will show up here."
           action={
-            <button className="button button-primary" onClick={() => document.getElementById(TICKET_SUBJECT_INPUT_ID)?.focus()}>
-              Create ticket
-            </button>
+            canWrite ? (
+              <button className="button button-primary" onClick={() => document.getElementById(TICKET_SUBJECT_INPUT_ID)?.focus()}>
+                Create ticket
+              </button>
+            ) : undefined
           }
         />
       )}
