@@ -7,14 +7,14 @@ export type BadgeValue = DocumentStatus | JobStatus | TicketStatus | TicketPrior
 type Tone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const TONES: Record<BadgeValue, Tone> = {
-  READY: "success",
+  UPLOADED: "success",
   SUCCEEDED: "success",
   RESOLVED: "success",
-  PROCESSING: "warning",
   RUNNING: "warning",
   IN_PROGRESS: "warning",
   MEDIUM: "warning",
   FAILED: "danger",
+  EXPIRED: "danger",
   HIGH: "danger",
   PENDING: "info",
   OPEN: "info",

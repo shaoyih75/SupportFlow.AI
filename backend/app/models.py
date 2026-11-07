@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, utcnow
@@ -17,7 +17,9 @@ Role = Literal["OWNER", "MEMBER", "VIEWER"]
 MembershipStatus = Literal["ACTIVE", "INVITED", "SUSPENDED", "REMOVED"]
 TicketStatus = Literal["OPEN", "IN_PROGRESS", "RESOLVED"]
 TicketPriority = Literal["LOW", "MEDIUM", "HIGH"]
-DocumentStatus = Literal["UPLOADED", "PROCESSING", "READY", "FAILED"]
+# PENDING → UPLOADED (server verified the S3 object) or EXPIRED (upload never arrived in time).
+# Next lesson adds processing states after UPLOADED.
+DocumentStatus = Literal["PENDING", "UPLOADED", "EXPIRED"]
 
 
 class TimestampMixin:
@@ -78,18 +80,36 @@ class WorkspaceMember(Base):
 
 
 class Document(TimestampMixin, Base):
+    """Metadata only. The file's bytes live in S3 at `storage_key`; PostgreSQL answers
+    "which documents does this workspace have, who uploaded them, are they ready"."""
+
     __tablename__ = "documents"
     __table_args__ = (
-        CheckConstraint("source_type IN ('pdf', 'docx', 'markdown', 'url')", name="source_type_valid"),
-        CheckConstraint("status IN ('UPLOADED', 'PROCESSING', 'READY', 'FAILED')", name="status_valid"),
-        # No extra index yet: there is no Document API query to justify one (next lesson).
+        # Query: WHERE workspace_id = ? ORDER BY created_at DESC (the workspace's document list)
+        Index("ix_documents_workspace_created", "workspace_id", "created_at"),
+        CheckConstraint("status IN ('PENDING', 'UPLOADED', 'EXPIRED')", name="status_valid"),
+        CheckConstraint("size_bytes > 0", name="size_positive"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # CASCADE removes the rows when a workspace is deleted, but NOT the S3 objects:
+    # those become orphans that a cleanup job must delete (see README "Upload failure cases").
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    title: Mapped[str] = mapped_column(String(200), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="UPLOADED")
+    uploaded_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # The user's original name, for display only. Never used as the S3 key: two users can
+    # upload "handbook.pdf", and a name like "../x" must not choose where the file goes.
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    # unique: one S3 object belongs to exactly one Document row
+    storage_key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Declared at upload-init; upload-complete checks the real S3 object has exactly this size.
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)  # bonus homework
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    upload_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Ticket(TimestampMixin, Base):

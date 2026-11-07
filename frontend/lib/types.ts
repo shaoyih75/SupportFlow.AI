@@ -16,16 +16,19 @@ export type Workspace = {
   memberCount: number;
 };
 
-export type DocumentStatus = "READY" | "PROCESSING" | "FAILED";
-export type SourceType = "pdf" | "docx" | "markdown" | "url";
+// PENDING: upload started · UPLOADED: the server verified the file in S3 · EXPIRED: never arrived
+export type DocumentStatus = "PENDING" | "UPLOADED" | "EXPIRED";
 
+// Metadata from PostgreSQL. The file itself lives in S3 and is fetched with a short-lived download URL.
 export type Document = {
   id: string;
   workspaceId: string;
-  title: string;
-  sourceType: SourceType;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
   status: DocumentStatus;
-  updatedAt: string; // ISO 8601
+  createdAt: string; // ISO 8601
+  uploadedAt: string | null;
 };
 
 export type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";

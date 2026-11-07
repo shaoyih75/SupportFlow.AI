@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Ticket, TicketPriority, TicketStatus, User, Workspace, WorkspaceMember
+from app.models import Document, Ticket, TicketPriority, TicketStatus, User, Workspace, WorkspaceMember
 
 
 class PostgresUserRepository:
@@ -129,3 +129,32 @@ class PostgresTicketRepository:
     def delete(self, ticket: Ticket) -> None:
         self.session.delete(ticket)
         self.session.flush()
+
+
+class PostgresDocumentRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def add(self, document: Document) -> Document:
+        self.session.add(document)
+        self.session.flush()
+        return document
+
+    def get_in_workspace(self, *, workspace_id: UUID, document_id: UUID) -> Document | None:
+        stmt = select(Document).where(Document.id == document_id, Document.workspace_id == workspace_id)
+        return self.session.scalar(stmt)
+
+    def list(self, workspace_id: UUID) -> list[Document]:
+        # Served by ix_documents_workspace_created
+        stmt = (
+            select(Document)
+            .where(Document.workspace_id == workspace_id)
+            .order_by(Document.created_at.desc(), Document.id.desc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def update(self, document: Document, changes: dict) -> Document:
+        for field, value in changes.items():
+            setattr(document, field, value)
+        self.session.flush()
+        return document

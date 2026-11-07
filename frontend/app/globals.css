@@ -174,3 +174,27 @@ a.ticket-card:hover { border-color: var(--accent); }
 .demo-accounts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
 .demo-account { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; text-align: left; font-size: 13px; }
 .demo-account:hover { border-color: var(--accent); }
+
+/* ---------- document upload ---------- */
+.upload {
+  margin-bottom: 20px;
+}
+.upload-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.upload-progress progress {
+  width: 100%;
+  height: 8px;
+}
+.document-name {
+  overflow-wrap: anywhere;
+}

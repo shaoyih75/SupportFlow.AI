@@ -1,0 +1,12 @@
+Acme Support Handbook
+
+Refunds
+- Refunds are processed within 5 business days.
+- Duplicate charges are refunded automatically after review.
+
+Password reset
+- Customers can reset their password from the login page.
+- If the reset email does not arrive, check the spam folder, then contact support.
+
+Invoices
+- Invoices can be exported as CSV from Billing > History.

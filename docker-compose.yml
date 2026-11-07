@@ -16,5 +16,23 @@ services:
       timeout: 3s
       retries: 15
 
+  # Local S3 for development (LocalStack emulates the AWS S3 API).
+  # The backend talks to it with boto3 exactly as it would to AWS; only S3_ENDPOINT_URL differs.
+  # Note: the free LocalStack keeps objects in memory, so files are gone after the container restarts.
+  s3:
+    image: localstack/localstack:4.4
+    environment:
+      SERVICES: s3
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./docker/s3-init.sh:/etc/localstack/init/ready.d/s3-init.sh:ro   # creates buckets + CORS
+    healthcheck:
+      # healthy = S3 is up AND the init script (buckets, CORS) has finished
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
 volumes:
   pgdata:

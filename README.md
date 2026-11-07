@@ -1,6 +1,6 @@
 # SupportFlow.AI
 
-AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD, JWT login, workspace RBAC) and a Next.js + React frontend.
+AI knowledge workflow platform for support teams. A FastAPI backend (Workspace + Ticket CRUD, JWT login, workspace RBAC, document upload to S3) and a Next.js + React frontend.
 
 > **第一次搭建环境？先看 [新人上手指南（中文，逐步说明）](docs/onboarding.zh-CN.md)。** 每一步都写了要输入什么、成功时会看到什么、出错了怎么办。
 
@@ -32,14 +32,13 @@ When Homebrew asks for `Password:`, type your Mac login password and press Enter
 cd ~/Documents/projects                      # any folder works
 git clone https://github.com/shaoyih75/SupportFlow.AI.git
 cd SupportFlow.AI
-git checkout feature/postgres-persistence    # until this branch is merged into main
 ```
 
-### 2. Start the database (terminal 1, project root)
+### 2. Start the database and S3 (terminal 1, project root)
 
 ```bash
-docker compose up -d --wait db               # first run downloads PostgreSQL (~150 MB)
-docker compose ps                            # STATUS shows (healthy)
+docker compose up -d --wait                  # PostgreSQL + local S3; first run downloads ~1 GB
+docker compose ps                            # both db and s3 show (healthy)
 ```
 
 ### 3. Set up and start the backend (terminal 2, `backend/`)
@@ -51,7 +50,7 @@ source .venv/bin/activate                    # the prompt now starts with (.venv
 pip install -r requirements.txt
 cp .env.example .env                         # DATABASE_URL / TEST_DATABASE_URL
 alembic upgrade head                         # create the six tables
-alembic current                              # shows: 0002 (head)
+alembic current                              # shows: 0003 (head)
 python -m app.seed                           # demo users (password123), workspaces, tickets (safe to re-run)
 uvicorn app.main:app --reload --port 8000
 ```
@@ -75,10 +74,11 @@ The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api
 1. Log in as `alice@example.com` / `password123` (or click a demo account), open **Acme Support → Tickets**: 5 demo tickets are listed.
 2. Create a ticket: it appears at the top.
 3. In terminal 2 press `Ctrl + C`, start `uvicorn app.main:app --reload --port 8000` again, refresh the page: **the new ticket is still there**.
-4. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
+4. Open **Documents**, choose `backend/scripts/handbook.txt` and click **Upload**: the progress goes 1/3 → 2/3 → 3/3 and the card shows `UPLOADED`. **Download** returns the same file.
+5. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
 
 ```bash
-pytest -q                                    # 24 passed
+pytest -q                                    # 50 passed
 ```
 
 ### 6. Look at the tables in TablePlus (optional)
@@ -103,7 +103,7 @@ No installs, migrations or seeding needed; your data is still there.
 
 ```bash
 # terminal 1, project root (Docker Desktop must be open)
-docker compose up -d --wait db
+docker compose up -d --wait
 
 # terminal 2, backend/
 source .venv/bin/activate
@@ -126,21 +126,25 @@ After pulling new code, also run `pip install -r requirements.txt` and `alembic 
 | `command not found: alembic` / `uvicorn` / `pytest` | The virtual environment is not active | `source .venv/bin/activate` in `backend/` |
 | `address already in use` on 8000 or 3000 | Another app uses the port | Stop it, or use `--port 8001` and start the frontend with `BACKEND_URL=http://localhost:8001 npm run dev` |
 | The sidebar shows "API offline" | The backend is not running | Start uvicorn in terminal 2 |
+| Upload: "Cannot reach file storage" / `Could not connect to the endpoint URL: http://localhost:4566` | The `s3` container is not running | `docker compose up -d --wait` |
+| Upload fails after restarting Docker; old documents can't be downloaded | The local S3 keeps files in memory only | Upload again (see [Local S3](#local-s3-for-development)) |
 
 More Docker-specific problems: [Troubleshooting](#troubleshooting).
 
 ## Data mode
 
 - **Workspaces, Tickets and registration**: FastAPI on **PostgreSQL** (SQLAlchemy 2.0 + Alembic). Data survives API and container restarts.
-- **Documents and the AI Assistant**: still mock data inside the frontend (`frontend/lib/mock-data.ts`). The `documents` and `messages` tables already exist for the next lessons.
+- **Documents**: file bytes in **S3**, metadata (filename, size, type, status) in PostgreSQL. See [Document upload](#document-upload-s3-presigned-post).
+- **AI Assistant**: the answer is still mock; it only matches question words against uploaded filenames. Real retrieval arrives with the RAG lessons.
 - **Login**: email + password → JWT access token, sent as `Authorization: Bearer <token>`. Demo users (password `password123`): `alice@example.com` (OWNER of Acme), `bob@example.com` (MEMBER of Acme, OWNER of his own workspace), `carol@example.com` (VIEWER of Acme). See [Permission model](#permission-model).
 
 ## Structure
 
 ```text
-docker-compose.yml        # PostgreSQL 17 (+ supportflow_test database for pytest)
+docker-compose.yml        # PostgreSQL 17 (+ supportflow_test database) and a local S3 (LocalStack)
+docker/s3-init.sh         # creates the S3 buckets and their CORS rule
 backend/
-  alembic/versions/       # versioned schema changes (0001 core schema, 0002 auth + VIEWER role)
+  alembic/versions/       # 0001 core schema, 0002 auth + VIEWER role, 0003 documents for S3
   app/
     main.py               # app, CORS, request id middleware, routers
     api/                  # Routers: HTTP → function calls, status codes
@@ -149,10 +153,12 @@ backend/
     repositories/         # base.py (Protocols) + postgres.py (SQLAlchemy queries)
     models.py             # SQLAlchemy ORM models = how data is stored
     auth/security.py      # bcrypt password hashing, JWT create/decode
+    storage/s3.py         # the only code that talks to S3: presigned POST, HeadObject, download links
     db/                   # Base, engine, Session, transaction()
     deps.py               # Depends(): current user (JWT), membership + role checks, services
     seed.py               # demo data with fixed ids
-  tests/                  # integration tests against real PostgreSQL
+  scripts/upload_demo.py  # three-step upload from the command line (handbook.txt)
+  tests/                  # integration tests against real PostgreSQL and the local S3
 frontend/
   app/  components/  lib/api.ts
 ```
@@ -168,6 +174,7 @@ erDiagram
     workspaces ||--o{ tickets : "contains"
     tickets ||--o{ messages : "contains"
     users |o--o{ messages : "writes"
+    users |o--o{ documents : "uploads"
 
     users {
         uuid id PK
@@ -187,6 +194,10 @@ erDiagram
     documents {
         uuid id PK
         uuid workspace_id FK
+        uuid uploaded_by_user_id FK
+        string filename
+        string storage_key UK
+        bigint size_bytes
         string status
     }
     tickets {
@@ -214,8 +225,9 @@ erDiagram
 | `tickets (workspace_id, created_at)` | `WHERE workspace_id = ? ORDER BY created_at DESC LIMIT n`, the default list (no status filter) |
 | `workspace_members (user_id)` | `WHERE user_id = ?`: "which workspaces am I in" (`GET /api/workspaces`) |
 | `uq_workspace_member (workspace_id, user_id)` | Uniqueness, and also the membership check run on every workspace-scoped request |
+| `documents (workspace_id, created_at)` | `WHERE workspace_id = ? ORDER BY created_at DESC`, the document list |
 
-`documents` and `messages` have no extra indexes yet: no API queries them so far.
+`messages` has no extra index yet: no API queries it so far.
 
 ## Permission model
 
@@ -239,17 +251,107 @@ Every workspace request answers four questions, in this order. The first "no" st
 | View the workspace, its tickets and members | ✅ | ✅ | ✅ |
 | Create and update tickets | ✅ | ✅ | ❌ 403 |
 | Delete tickets | ✅ | ❌ 403 | ❌ 403 |
+| Upload documents | ✅ | ✅ | ❌ 403 |
+| View and download documents | ✅ | ✅ | ✅ |
 | Add or remove members | ✅ | ❌ 403 | ❌ 403 |
 
-The table lives in one place, `app/deps.py` (`can_read`, `can_write_tickets`, `can_delete_tickets`, `can_manage_members`). The frontend hides controls a role can't use (VIEWER sees no create form or status menu; only OWNER sees Delete), but that is only for convenience: the API refuses the request anyway.
+The table lives in one place, `app/deps.py` (`can_read`, `can_write_tickets`, `can_delete_tickets`, `can_manage_members`, `can_upload_documents`). The frontend hides controls a role can't use (VIEWER sees no create form or status menu; only OWNER sees Delete), but that is only for convenience: the API refuses the request anyway.
 
 **IDOR, before and after.** Before: `GET /tickets/{ticket_id}` loaded the ticket by its global id, so any logged-in user who knew Bob's ticket id could read it (200). After: the route is `/workspaces/{workspace_id}/tickets/{ticket_id}`, membership is checked for `workspace_id`, and the query filters on both ids, so Alice gets 403 in Bob's workspace and 404 when she puts Bob's ticket id under her own workspace. To show the bug in class, start the API with `ENABLE_IDOR_DEMO=1`, which mounts the deliberately insecure `GET /api/demo/insecure/tickets/{ticket_id}` (off by default; a test checks it stays off).
 
 **Token storage (frontend).** The demo keeps the token in `localStorage`. Production apps usually use a `Secure`, `HttpOnly`, `SameSite` cookie instead (scripts can't read it), which then also needs CSRF protection.
 
+## Document upload (S3, presigned POST)
+
+Uploading `handbook.txt` ends with the bytes in **S3** and one row in PostgreSQL's `documents` table, status `PENDING` → `UPLOADED`.
+
+**Where things live.** S3 stores the file's bytes under a **storage key** (`workspaces/{workspace_id}/documents/{document_id}.txt`, chosen by the server, never the user's filename). PostgreSQL stores what we query and permission-check: which workspace, filename, type, size, status, who uploaded it. "All PDFs in this workspace" is a SQL query, not an S3 listing.
+
+### Two ways to upload
+
+**Proxy upload** (simple, not used here): every byte flows through FastAPI, so 5,000 users uploading 20 MB each means 100 GB through our API servers.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as FastAPI
+    participant S as S3
+    B->>A: POST /upload (multipart, the whole file)
+    A->>S: upload_fileobj (the whole file again)
+    A-->>B: 201
+```
+
+**Presigned upload** (what we built): FastAPI only signs a short-lived permission and checks the result. The file goes from the browser straight to S3.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as FastAPI
+    participant D as PostgreSQL
+    participant S as S3
+    B->>A: 1. upload-init {filename, content_type, size_bytes}
+    A->>A: membership + role check, allowed type, size ≤ 10 MiB
+    A->>D: INSERT document (PENDING, storage_key)
+    A-->>B: presigned POST {url, fields}, valid 5 min
+    B->>S: 2. POST url + fields + file (bytes never touch FastAPI)
+    S-->>B: 204 (or 400 too large / 403 wrong type)
+    B->>A: 3. upload-complete
+    A->>S: HeadObject (real size and type) + first bytes
+    A->>D: UPDATE status = UPLOADED
+    A-->>B: 200 document
+```
+
+The code follows the same layers as tickets: `api/documents.py` → `services/document_service.py` → `repositories/postgres.py` (`PostgresDocumentRepository`) + `storage/s3.py` (the only module that imports boto3).
+
+### Document status
+
+```text
+PENDING ──upload + server verification──▶ UPLOADED   (next lesson: text extraction, chunks, embeddings)
+   └──no file 10 min after the deadline──▶ EXPIRED ──a slow upload lands after all──▶ UPLOADED
+```
+
+upload-complete always asks S3 first; the clock only matters when the file is missing. A file that is there was accepted by S3 while the permission was valid, so it becomes `UPLOADED` however late `complete` is called. S3 checks the expiry when an upload *starts*, so a missing file is declared `EXPIRED` only after a 10-minute grace (`UPLOAD_GRACE`), and an `EXPIRED` row whose file shows up later still becomes `UPLOADED` instead of leaving an orphan.
+
+### Never trust the client
+
+| The client claims… | Checked by |
+|---|---|
+| the type (`.pdf` + `application/pdf`) | upload-init allow-list; S3 refuses a different `Content-Type` than signed (403); upload-complete reads the first bytes (`%PDF-`, or no NUL bytes for text) |
+| the size | upload-init (≤ 10 MiB, else 422); S3 refuses > 10 MiB (`content-length-range`); upload-complete compares HeadObject's real size with the declared one |
+| "the upload succeeded" | upload-complete asks S3 (HeadObject) instead of believing it |
+| the workspace | it comes from the URL and goes through the Lesson 6 membership + role check, never from the body |
+| the filename | display only; the server picks the storage key |
+
+When upload-complete rejects a file it **deletes the object** and the document stays `PENDING`, so the client can upload again while the 5-minute permission is valid.
+
+### Upload failure cases
+
+| Case | What happens / how to handle it |
+|---|---|
+| A. Got the URL, never uploaded | Row stays `PENDING`. upload-complete after the expiry marks it `EXPIRED`. A scheduled cleanup job should do the same for rows nobody completes (homework) |
+| B. S3 succeeded, our API never heard back | upload-complete is **idempotent**: calling it again re-checks S3 and returns the same result, never a second row |
+| C. Two files called `handbook.pdf` | No conflict: each gets its own UUID storage key; `filename` is only for display |
+| D. Same content uploaded twice | Detect with a SHA-256 checksum, per workspace (homework). An S3 ETag is not always the content's MD5 |
+| E. Forged type or size | See the table above |
+| F. Row deleted, file still in S3 (an orphan) | e.g. a deleted workspace (CASCADE removes rows, not objects). Needs a delete workflow or a periodic job comparing S3 keys with rows |
+
+### Local S3 for development
+
+`docker compose` runs **LocalStack**, a local emulator of the AWS S3 API, as the `s3` service on port 4566. The backend uses boto3 exactly as it would with AWS; only `S3_ENDPOINT_URL` differs. `docker/s3-init.sh` creates the buckets `supportflow-documents` (app) and `supportflow-documents-test` (pytest) and their **CORS** rule: the browser's direct POST to S3 is cross-origin, so S3 must allow `http://localhost:3000`.
+
+The free LocalStack keeps files **in memory**: after `docker compose down` or a Docker restart, the files are gone but PostgreSQL still has the rows (case F in miniature). Upload again; real S3 is durable.
+
+```bash
+cd backend && python scripts/upload_demo.py                                   # the 3 steps from the command line
+docker compose exec s3 awslocal s3 ls --recursive s3://supportflow-documents/  # files in S3
+docker compose exec db psql -U supportflow -c "SELECT filename, storage_key, size_bytes, status FROM documents;"
+```
+
+**Switching to real AWS S3:** create a private bucket, add the same CORS rule (with your real frontend origin), then in `backend/.env` set `S3_ENDPOINT_URL=` (empty), `S3_BUCKET`, `S3_REGION`, remove the two `S3_*_KEY` lines and set `AWS_PROFILE`. No code changes.
+
 ## Database with Docker (step by step)
 
-PostgreSQL runs in a Docker container, so everyone gets the same database version and setup from one command. Only the database runs in Docker; FastAPI and Next.js run directly on your machine.
+PostgreSQL (and the local S3, see [Local S3](#local-s3-for-development)) run in Docker containers, so everyone gets the same setup from one command. FastAPI and Next.js run directly on your machine.
 
 ### Step 1: Install Docker Desktop (once)
 
@@ -331,7 +433,7 @@ Why not `psql "$DATABASE_URL"`? `DATABASE_URL` is read by Python (`app/config.py
 
 | Command | What happens | Data |
 |---|---|---|
-| `docker compose up -d --wait db` | Start (or restart) the database | kept |
+| `docker compose up -d --wait` | Start (or restart) the database and S3 | kept (S3 files: lost on restart) |
 | `docker compose ps` | Show status | kept |
 | `docker compose logs -f db` | Follow the database logs (`Ctrl + C` to stop following) | kept |
 | `docker compose stop` | Stop the container | kept |
@@ -389,6 +491,16 @@ pytest -q        # migrates supportflow_test (downgrade base → upgrade head), 
 | Bob's ticket id under Alice's workspace (GET / PATCH / DELETE) → 404, data unchanged | scoped repository query |
 | role / user_id smuggled in body or headers → still 403 | identity only from the token |
 | insecure IDOR demo route is not mounted by default | `ENABLE_IDOR_DEMO` flag |
+| **Lesson 7** (`tests/test_documents.py`, real local S3) | |
+| `.txt` / `.md` / `.pdf`: PENDING → upload to S3 → UPLOADED; complete twice = same result, one row | upload-complete (HeadObject + idempotent) |
+| upload URL points at S3, not our API | presigned POST |
+| complete before the file arrived → 409 `UPLOAD_NOT_FOUND`, retry works | upload-complete |
+| `.exe`, extension/type mismatch, no extension → 400; declared size > 10 MiB → 422 | upload-init |
+| file > 10 MiB or a different Content-Type than signed | **S3 itself** (signed policy) |
+| real size ≠ declared, or a text file renamed `.pdf` → 400, object deleted | upload-complete checks what S3 stored |
+| upload never sent → `EXPIRED` only after the deadline + grace; a late `complete` or a file landing after `EXPIRED` → `UPLOADED` | upload-complete (S3 first, clock second) |
+| `../../etc/passwd.txt` is stored as `passwd.txt`, key chosen by the server | `clean_filename` + server-generated key |
+| VIEWER can't upload; Alice can't upload into Bob's workspace; Bob's document id under Acme → 404 | Lesson 6 permission chain |
 
 ## Environment variables
 
@@ -400,6 +512,10 @@ Backend (`backend/.env`, see `.env.example`):
 | `JWT_SECRET_KEY` | an insecure dev-only value | Signs access tokens. **Set a long random value outside development**: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Token lifetime |
 | `ENABLE_IDOR_DEMO` | off | `1` mounts the deliberately insecure Class 6 demo endpoint |
+| `S3_ENDPOINT_URL` | `http://localhost:4566` (local S3) | Set it **empty** to use real AWS S3 |
+| `S3_BUCKET` | `supportflow-documents` | Bucket for uploaded files (`TEST_S3_BUCKET`, default `supportflow-documents-test`, for pytest) |
+| `S3_REGION` | `us-east-1` | |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | `test` / `test` locally | For AWS, leave unset and use `AWS_PROFILE` (boto3's normal credential chain) |
 
 Frontend:
 
@@ -430,6 +546,11 @@ Copy `frontend/.env.example` to `frontend/.env.local` to change them.
 | GET | `/api/workspaces/{wid}/tickets/{id}` | 200 | any member | 404 if the ticket is not in that workspace |
 | PATCH | `/api/workspaces/{wid}/tickets/{id}` | 200 | OWNER, MEMBER | any of `subject`, `priority`, `status` |
 | DELETE | `/api/workspaces/{wid}/tickets/{id}` | 204 | OWNER | |
+| GET | `/api/workspaces/{wid}/documents` | 200 | any member | newest first, all statuses |
+| POST | `/api/workspaces/{wid}/documents/upload-init` | 201 | OWNER, MEMBER | body `{filename, content_type, size_bytes}` → PENDING document + presigned POST (5 min) |
+| POST | `/api/workspaces/{wid}/documents/{id}/upload-complete` | 200 | OWNER, MEMBER | checks the object in S3 → UPLOADED; safe to retry. 409 `UPLOAD_NOT_FOUND` / `UPLOAD_EXPIRED`, 400 `UPLOAD_REJECTED` |
+| GET | `/api/workspaces/{wid}/documents/{id}` | 200 | any member | metadata |
+| GET | `/api/workspaces/{wid}/documents/{id}/download-url` | 200 | any member | 5-minute S3 download link; 409 until UPLOADED |
 
 Every workspace route answers 401 without a valid token and 403 for non-members, before checking anything else.
 
@@ -492,3 +613,5 @@ cloudflared tunnel --url http://localhost:3000
 ```
 
 It prints a `https://<random>.trycloudflare.com` URL that anyone can open. Only port 3000 needs a tunnel because the browser reaches FastAPI through the Next.js `/api` proxy. Press `Ctrl + C` to close it; the URL stops working immediately.
+
+Document **upload and download do not work through the tunnel**: the browser sends files straight to S3 at `http://localhost:4566`, which only exists on your machine. With real AWS S3 (a public HTTPS endpoint) they would work, after adding the tunnel's origin to the bucket's CORS rule.

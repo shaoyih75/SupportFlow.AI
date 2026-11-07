@@ -1,14 +1,14 @@
 // Frontend/backend boundary. Every page gets data through these functions.
-// Workspaces and Tickets come from FastAPI; Documents and the Assistant are still mock.
+// Workspaces, Tickets and Documents come from FastAPI; only the Assistant's answer is still mock.
 //
 // Auth: every request carries `Authorization: Bearer <token>`. The UI may hide buttons a role
 // can't use, but the backend re-checks every request: the frontend is never the security boundary.
 
 import { clearAccessToken, getAccessToken, redirectToLogin } from "./auth";
-import { mockDocuments } from "./mock-data";
 import type {
   AssistantAnswer,
   Document,
+  DocumentStatus,
   Page,
   Ticket,
   TicketCreate,
@@ -205,25 +205,122 @@ export async function deleteTicket(workspaceId: string, ticketId: string): Promi
   await request<void>(`/workspaces/${workspaceId}/tickets/${ticketId}`, { method: "DELETE" });
 }
 
-// ---------- documents + assistant (still mock) ----------
+// ---------- documents ----------
 
-function delay(ms = 500) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+type DocumentJson = {
+  id: string;
+  workspace_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  status: DocumentStatus;
+  created_at: string;
+  uploaded_at: string | null;
+};
+
+const toDocument = (d: DocumentJson): Document => ({
+  id: d.id,
+  workspaceId: d.workspace_id,
+  filename: d.filename,
+  contentType: d.content_type,
+  sizeBytes: d.size_bytes,
+  status: d.status,
+  createdAt: d.created_at,
+  uploadedAt: d.uploaded_at,
+});
+
+// Same rules as the backend (it re-checks everything): checking here just fails fast, before any request.
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const UPLOAD_TYPES: Record<string, string> = { pdf: "application/pdf", txt: "text/plain", md: "text/markdown" };
+export const UPLOAD_ACCEPT = ".pdf,.txt,.md";
+
+export function uploadContentType(filename: string): string | null {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  return filename.includes(".") ? (UPLOAD_TYPES[ext] ?? null) : null;
 }
 
 export async function getDocuments(workspaceId: string): Promise<Document[]> {
-  await delay();
-  return mockDocuments.filter((d) => d.workspaceId === workspaceId);
+  const data = await request<DocumentJson[]>(`/workspaces/${workspaceId}/documents`);
+  return data.map(toDocument);
 }
 
+export async function getDownloadUrl(workspaceId: string, documentId: string): Promise<string> {
+  const data = await request<{ url: string }>(`/workspaces/${workspaceId}/documents/${documentId}/download-url`);
+  return data.url;
+}
+
+export type UploadStep = "init" | "upload" | "verify";
+
+type UploadInitJson = {
+  document: DocumentJson;
+  upload: { url: string; fields: Record<string, string> };
+  expires_in: number;
+};
+
+// The three-step upload. Only step 2 carries the file, and it goes to S3, not to our API.
+export async function uploadDocument(
+  workspaceId: string,
+  file: File,
+  onProgress: (step: UploadStep, percent: number) => void,
+): Promise<Document> {
+  const contentType = uploadContentType(file.name);
+  if (!contentType) throw new ApiError(400, "UNSUPPORTED_FILE_TYPE", "Only PDF, TXT and Markdown (.md) files are supported");
+  if (file.size > MAX_UPLOAD_BYTES) throw new ApiError(422, "FILE_TOO_LARGE", "Files must be 10 MB or smaller");
+  if (file.size === 0) throw new ApiError(422, "EMPTY_FILE", "The file is empty");
+
+  // 1. upload-init: metadata only → PENDING row + presigned POST
+  onProgress("init", 0);
+  const init = await request<UploadInitJson>(`/workspaces/${workspaceId}/documents/upload-init`, {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, content_type: contentType, size_bytes: file.size }),
+  });
+
+  // 2. the bytes go straight to S3
+  await postToS3(init.upload, file, contentType, (percent) => onProgress("upload", percent));
+
+  // 3. upload-complete: the server checks S3 and marks the document UPLOADED
+  onProgress("verify", 100);
+  const done = await request<DocumentJson>(
+    `/workspaces/${workspaceId}/documents/${init.document.id}/upload-complete`,
+    { method: "POST" },
+  );
+  return toDocument(done);
+}
+
+// XMLHttpRequest instead of fetch: fetch cannot report upload progress.
+function postToS3(
+  upload: UploadInitJson["upload"],
+  file: File,
+  contentType: string,
+  onPercent: (percent: number) => void,
+): Promise<void> {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(upload.fields)) form.append(key, value); // signed fields first
+  form.append("file", new Blob([file], { type: contentType }), file.name); // the file must be last
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", upload.url);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onPercent(Math.round((e.loaded / e.total) * 100));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      // S3 answers errors in XML: <Error><Code>EntityTooLarge</Code><Message>…</Message></Error>
+      const code = xhr.responseText.match(/<Code>(.*?)<\/Code>/)?.[1] ?? `S3_${xhr.status}`;
+      const message = xhr.responseText.match(/<Message>(.*?)<\/Message>/)?.[1] ?? "Upload to storage failed";
+      reject(new ApiError(xhr.status, code, message));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "S3_UNREACHABLE", "Cannot reach file storage. Is S3 running (docker compose up)?"));
+    xhr.send(form);
+  });
+}
+
+// ---------- assistant (answer still mock; real retrieval + LLM comes in the RAG lessons) ----------
+
 export async function askAssistant(workspaceId: string, question: string): Promise<AssistantAnswer> {
-  await delay();
+  const documents = await getDocuments(workspaceId);
   const words = question.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-  const matches = mockDocuments.filter(
-    (d) =>
-      d.workspaceId === workspaceId &&
-      d.status === "READY" &&
-      words.some((w) => d.title.toLowerCase().includes(w)),
+  const matches = documents.filter(
+    (d) => d.status === "UPLOADED" && words.some((w) => d.filename.toLowerCase().includes(w)),
   );
 
   if (matches.length === 0) {
@@ -234,6 +331,6 @@ export async function askAssistant(workspaceId: string, question: string): Promi
   }
   return {
     answer: `Mock answer: based on ${matches.length} document(s), here is what the knowledge base says. Real retrieval + LLM answers arrive in a later phase.`,
-    citations: matches.map((d) => ({ documentId: d.id, documentTitle: d.title })),
+    citations: matches.map((d) => ({ documentId: d.id, documentTitle: d.filename })),
   };
 }

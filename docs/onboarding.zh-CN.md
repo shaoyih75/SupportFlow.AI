@@ -72,7 +72,7 @@
 ```text
 第 1 步  安装工具（只做一次）
 第 2 步  下载代码
-第 3 步  终端 1：启动数据库（Docker）
+第 3 步  终端 1：启动数据库和 S3（Docker）
 第 4 步  终端 2：后端 —— 装依赖 → 建表 → 写演示数据 → 启动
 第 5 步  终端 3：前端 —— 装依赖 → 启动
 第 6 步  浏览器里验证 + 跑测试
@@ -150,10 +150,9 @@ mkdir -p ~/Documents/projects
 cd ~/Documents/projects
 git clone https://github.com/shaoyih75/SupportFlow.AI.git
 cd SupportFlow.AI
-git checkout feature/postgres-persistence
 ```
 
-✅ 成功：最后一条显示 `Switched to a new branch 'feature/postgres-persistence'` 或 `Already on ...`。
+✅ 成功：显示 `Cloning into 'SupportFlow.AI'...`，最后没有 `fatal:` 报错。
 
 检查一下位置：
 
@@ -168,22 +167,26 @@ ls
 
 ---
 
-## 第 3 步：启动数据库（终端 1，项目根目录）
+## 第 3 步：启动数据库和 S3（终端 1，项目根目录）
 
 确认 Docker 应用已经打开，然后：
 
 ```bash
-docker compose up -d --wait db
+docker compose up -d --wait
 ```
 
-第一次会下载 PostgreSQL 镜像（约 150MB），需要等一会儿。
+这条命令会启动两个容器：
+
+- `db`：PostgreSQL 数据库，存 ticket、用户、文档信息等数据。
+- `s3`：本地的 S3 文件存储，存上传的文件本身。
+
+第一次会下载两个镜像（合计约 1GB），需要等几分钟。
 
 ✅ 成功时最后几行类似：
 
 ```text
-✔ Network supportflowai_default  Created
-✔ Volume "supportflowai_pgdata"  Created
 ✔ Container supportflowai-db-1   Healthy
+✔ Container supportflowai-s3-1   Healthy
 ```
 
 再确认一次：
@@ -192,7 +195,7 @@ docker compose up -d --wait db
 docker compose ps
 ```
 
-✅ `STATUS` 一列显示 `Up ... (healthy)`。
+✅ `db` 和 `s3` 两行的 `STATUS` 都显示 `Up ... (healthy)`。
 
 ❌ 看到 `no configuration file provided`：你不在项目根目录，先 `cd ~/Documents/projects/SupportFlow.AI`。
 
@@ -235,7 +238,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-这条命令没有任何输出，是正常的。`.env` 里写着数据库地址，内容和 Docker 里的数据库是对应的，不需要修改。
+这条命令没有任何输出，是正常的。`.env` 里写着数据库和 S3 的地址，内容和 Docker 里的容器是对应的，不需要修改。
 
 ### 4.5 建表
 
@@ -248,6 +251,7 @@ alembic upgrade head
 ```text
 INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial core schema
 INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, auth password hash and viewer role
+INFO  [alembic.runtime.migration] Running upgrade 0002 -> 0003, documents for s3 uploads
 ```
 
 确认一下：
@@ -256,7 +260,7 @@ INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, auth password ha
 alembic current
 ```
 
-✅ 显示 `0002 (head)`。
+✅ 显示 `0003 (head)`。
 
 ⚠️ 这里只能用 `alembic upgrade head`。**不要**运行 `alembic revision --autogenerate`：那条命令是"写一个新的 migration 文件"，只有修改了 `models.py` 之后才需要用。
 
@@ -352,6 +356,35 @@ npm run dev
 
 按钮被隐藏只是为了体验好；就算有人绕过前端直接调用 API，后端也会返回 403。
 
+### 6.1.2 上传文档到 S3
+
+1. 用 alice 登录，进入 Acme Support，点左侧 **Documents**。
+2. 点 **Choose File**，选项目里的 `backend/scripts/handbook.txt`，再点 **Upload**。
+3. 进度会依次显示：
+    - `1/3 Asking the API for an upload link`：后端检查权限，在数据库里写一条 `PENDING` 记录。
+    - `2/3 Uploading to S3 xx%`：文件直接传到 S3，**不经过我们的后端**。
+    - `3/3 Server is verifying the file in S3`：后端去 S3 核对文件，确认无误后改成 `UPLOADED`。
+4. 列表里出现 `handbook.txt`，状态是绿色的 **UPLOADED**。点 **Download** 能下载回同一个文件。
+5. 选一张图片或 `.exe` 文件：页面直接提示 "Only PDF, TXT and Markdown"，不会上传。
+6. 用 carol（VIEWER）登录：能看到文档列表，但没有上传区域。
+
+在**终端 1**（项目根目录）确认文件和记录都在：
+
+```bash
+docker compose exec s3 awslocal s3 ls --recursive s3://supportflow-documents/
+docker compose exec db psql -U supportflow -c "SELECT filename, storage_key, size_bytes, status FROM documents;"
+```
+
+✅ S3 里有一个 `workspaces/1111.../documents/<一串id>.txt` 的文件；数据库里有一行 `handbook.txt ... UPLOADED`。两边的 key 一样。
+
+也可以不用浏览器，用脚本走一遍三步上传（在激活了 `.venv` 的 backend 目录里，后端要在运行）：
+
+```bash
+python scripts/upload_demo.py
+```
+
+⚠️ 本地 S3 把文件存在**内存**里：重启 Docker 或运行 `docker compose down` 之后，文件会消失，但数据库里的记录还在，这时点 Download 会失败。重新上传一次即可。真正的 AWS S3 不会丢文件。
+
 ### 6.2 证明数据真的存进了数据库（本课核心）
 
 1. 回到**终端 2**，按 `Ctrl + C` 停掉后端。
@@ -375,9 +408,9 @@ source .venv/bin/activate
 pytest -q
 ```
 
-✅ 成功：最后一行是 `24 passed`。
+✅ 成功：最后一行是 `50 passed`。
 
-测试用的是另一个数据库 `supportflow_test`，不会影响你在网页上看到的数据。
+测试用的是另一个数据库 `supportflow_test` 和另一个 S3 bucket `supportflow-documents-test`，不会影响你在网页上看到的数据。
 
 ---
 
@@ -414,8 +447,8 @@ docker compose exec db psql -U supportflow -c "SELECT subject, status FROM ticke
 ### 关掉
 
 - 终端 2、终端 3：各按一次 `Ctrl + C`。
-- 数据库可以不管它，让它在后台跑着；想关就在终端 1 运行 `docker compose stop`。
-- 退出 Docker 应用、关机都**不会丢数据**。
+- 数据库和 S3 可以不管它们，让它们在后台跑着；想关就在终端 1 运行 `docker compose stop`。
+- 退出 Docker 应用、关机都**不会丢数据库里的数据**；但本地 S3 里上传的文件会丢，需要重新上传。
 
 ### 第二天再打开
 
@@ -425,7 +458,7 @@ docker compose exec db psql -U supportflow -c "SELECT subject, status FROM ticke
 
 ```bash
 cd ~/Documents/projects/SupportFlow.AI
-docker compose up -d --wait db
+docker compose up -d --wait
 ```
 
 终端 2（backend）：
@@ -462,7 +495,7 @@ npm install
 
 ```bash
 docker compose down -v
-docker compose up -d --wait db
+docker compose up -d --wait
 ```
 
 然后回到第 4 步，重新做 4.5（`alembic upgrade head`）和 4.6（`python -m app.seed`）。⚠️ `down -v` 会**删除所有数据**。
@@ -479,7 +512,11 @@ docker compose up -d --wait db
 | `no configuration file provided` | 运行 `docker compose` 时不在项目根目录 | `cd ~/Documents/projects/SupportFlow.AI` |
 | `command not found: alembic` / `uvicorn` / `pytest` | 没激活虚拟环境（提示符前没有 `(.venv)`） | 在 backend 目录运行 `source .venv/bin/activate` |
 | `No 'script_location' key found` | 运行 alembic 时不在 backend 目录 | `cd ~/Documents/projects/SupportFlow.AI/backend` |
-| `Connection refused ... port 5432` | 数据库没启动 | 终端 1 运行 `docker compose up -d --wait db` |
+| `Connection refused ... port 5432` | 数据库没启动 | 终端 1 运行 `docker compose up -d --wait` |
+| 上传时显示 "Cannot reach file storage" | S3 容器没启动 | 终端 1 运行 `docker compose up -d --wait` |
+| 上传显示 "Only PDF, TXT and Markdown" | 文件类型不支持 | 换成 `.pdf`、`.txt` 或 `.md` 文件 |
+| 上传显示 "Files must be 10 MB or smaller" | 文件超过 10MB | 换一个小一点的文件 |
+| 重启 Docker 后 Download 失败 | 本地 S3 的文件存在内存里，重启就没了 | 重新上传 |
 | `Target database is not up to date` | 运行了 `alembic revision` | 改成运行 `alembic upgrade head` |
 | `Address already in use` / `address already in use` | 8000 或 3000 端口被别的程序占了 | 关掉那个程序；或者后端用 `--port 8001`，前端用 `BACKEND_URL=http://localhost:8001 npm run dev` 启动 |
 | 网页左下角显示 "API offline" | 后端没在运行 | 去终端 2 启动 uvicorn |
@@ -496,12 +533,13 @@ docker compose up -d --wait db
 
 全部打勾，就说明环境搭好了：
 
-- [ ] `docker compose ps` 显示 `(healthy)`
-- [ ] `alembic current` 显示 `0002 (head)`
+- [ ] `docker compose ps` 里 `db` 和 `s3` 都显示 `(healthy)`
+- [ ] `alembic current` 显示 `0003 (head)`
 - [ ] http://localhost:8000/docs 能打开
 - [ ] 用 alice@example.com / password123 登录后，Acme Support 里能看到 5 个 ticket
 - [ ] 用 carol@example.com 登录，看不到创建表单和编辑按钮
 - [ ] 新建 ticket → 重启后端 → 刷新页面，ticket 还在
-- [ ] `pytest -q` 显示 `24 passed`
+- [ ] Documents 页面上传 `handbook.txt`，状态变成 `UPLOADED`，能下载
+- [ ] `pytest -q` 显示 `50 passed`
 
 更多原理说明（为什么要分层、约束和索引、Transaction、Alembic、Docker 数据存在哪）见项目根目录的 [README.md](../README.md)。

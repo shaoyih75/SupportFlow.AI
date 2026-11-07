@@ -3,14 +3,14 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, demo_insecure, tickets, workspaces
+from app.api import auth, demo_insecure, documents, tickets, workspaces
 from app.config import ENABLE_IDOR_DEMO
 from app.errors import register_error_handlers
 
 app = FastAPI(
     title="SupportFlow.AI API",
-    version="0.5.0",
-    description="Workspace and Ticket CRUD on PostgreSQL, with JWT login and workspace RBAC.",
+    version="0.6.0",
+    description="Workspaces, tickets and document uploads (S3 presigned POST), with JWT login and workspace RBAC.",
 )
 
 # Only needed when the browser calls FastAPI directly (NEXT_PUBLIC_API_URL=http://localhost:8000/api).
@@ -43,6 +43,7 @@ def health() -> dict[str, str]:
 app.include_router(auth.router, prefix="/api")
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
 
 if ENABLE_IDOR_DEMO:
     app.include_router(demo_insecure.router, prefix="/api")
