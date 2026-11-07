@@ -15,6 +15,7 @@ from app.db.base import utcnow
 from app.deps import get_storage
 from app.models import Document
 from app.seed import ACME_WS_ID, BOB_WS_ID
+from app.services.document_service import UPLOAD_GRACE
 
 HANDBOOK = b"Refunds are processed within 5 business days.\n"
 TINY_PDF = b"%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"
@@ -165,16 +166,52 @@ def test_a_text_file_renamed_to_pdf_is_rejected(client, alice):
     assert response.json()["error"]["message"] == "File is not a valid PDF"
 
 
-def test_upload_never_sent_before_expiry_becomes_expired(client, alice, session):
-    doc_id = init(client, alice).json()["document"]["id"]
+def expire(session, doc_id, *, ago: timedelta):
+    """Pretend the upload permission ran out `ago` (instead of waiting 5 minutes in a test)."""
     row = stored(session, doc_id)
-    row.upload_expires_at = utcnow() - timedelta(seconds=1)  # pretend the 5 minutes have passed
+    row.upload_expires_at = utcnow() - ago
     session.commit()
+
+
+def test_upload_never_sent_becomes_expired_after_the_grace(client, alice, session):
+    doc_id = init(client, alice).json()["document"]["id"]
+    expire(session, doc_id, ago=UPLOAD_GRACE + timedelta(seconds=1))
 
     response = complete(client, alice, doc_id)
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "UPLOAD_EXPIRED"
     assert stored(session, doc_id).status == "EXPIRED"
+
+
+def test_missing_file_just_after_the_deadline_is_not_expired_yet(client, alice, session):
+    # An upload that started right before the deadline may still be streaming into S3.
+    doc_id = init(client, alice).json()["document"]["id"]
+    expire(session, doc_id, ago=timedelta(seconds=1))
+
+    response = complete(client, alice, doc_id)
+    assert response.json()["error"]["code"] == "UPLOAD_NOT_FOUND"
+    assert stored(session, doc_id).status == "PENDING"
+
+
+def test_late_complete_is_accepted_when_the_file_arrived_in_time(client, alice, session):
+    body = init(client, alice).json()
+    doc_id = body["document"]["id"]
+    upload_to_s3(body, HANDBOOK)  # uploaded while the permission was valid…
+    expire(session, doc_id, ago=timedelta(hours=1))  # …but complete only comes an hour later
+
+    assert complete(client, alice, doc_id).json()["status"] == "UPLOADED"
+
+
+def test_file_that_finishes_after_being_marked_expired_still_becomes_uploaded(client, alice, session):
+    body = init(client, alice).json()
+    doc_id = body["document"]["id"]
+    expire(session, doc_id, ago=UPLOAD_GRACE + timedelta(seconds=1))
+    assert complete(client, alice, doc_id).json()["error"]["code"] == "UPLOAD_EXPIRED"  # marked EXPIRED
+
+    upload_to_s3(body, HANDBOOK)  # the slow upload finally lands (S3 accepted it when it started)
+    done = complete(client, alice, doc_id)
+    assert done.status_code == 200
+    assert done.json()["status"] == "UPLOADED"  # EXPIRED → UPLOADED, no orphan file left behind
 
 
 def test_filename_is_display_only_and_cannot_choose_the_path(client, alice, session):

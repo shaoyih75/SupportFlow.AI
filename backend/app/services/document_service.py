@@ -33,6 +33,9 @@ ALLOWED_TYPES = {
 }
 PDF_SIGNATURE = b"%PDF-"
 DOWNLOAD_URL_EXPIRES_SECONDS = 300
+# S3 checks the expiry when an upload STARTS. An upload begun just before the deadline can still
+# be streaming after it, so a missing file only counts as "never coming" once this grace has passed too.
+UPLOAD_GRACE = timedelta(minutes=10)
 
 
 def clean_filename(raw: str) -> str:
@@ -97,20 +100,22 @@ class DocumentService:
         # Idempotent: a retry after a lost response gets the same success, not an error or a new row.
         if document.status == "UPLOADED":
             return DocumentResponse.model_validate(document)
-        if document.status == "EXPIRED":
-            raise ConflictError("UPLOAD_EXPIRED", "This upload has expired. Start a new upload.")
 
+        # Always ask S3 first, even for EXPIRED: what decides is whether the file is there, not the clock.
         stored = self.storage.head(document.storage_key)
         if stored is None:
-            if utcnow() > document.upload_expires_at:
-                with transaction(self.session):
-                    self.documents.update(document, {"status": "EXPIRED"})
+            # Expired only when the file can no longer arrive: the upload permission AND the grace are over.
+            if document.status == "EXPIRED" or utcnow() > document.upload_expires_at + UPLOAD_GRACE:
+                if document.status != "EXPIRED":
+                    with transaction(self.session):
+                        self.documents.update(document, {"status": "EXPIRED"})
                 raise ConflictError("UPLOAD_EXPIRED", "This upload has expired. Start a new upload.")
             # Retryable: the client may call complete before S3 finished, or never uploaded.
             raise ConflictError("UPLOAD_NOT_FOUND", "The file has not arrived in S3 yet. Upload it, then retry.")
 
-        # An object that exists was uploaded while the presigned POST was valid (S3 enforces the
-        # expiry), so it is accepted even if this complete call itself comes late.
+        # The file is there. S3 only accepts uploads that started while the presigned POST was valid,
+        # so it is accepted however late this call comes, even if the row was already marked EXPIRED
+        # (an upload that finished after the deadline): EXPIRED → UPLOADED.
         problem = self._verify(document, stored)
         if problem:
             self.storage.delete(document.storage_key)  # never keep bytes we refuse to vouch for

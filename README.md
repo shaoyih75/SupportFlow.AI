@@ -78,7 +78,7 @@ The frontend calls `/api/*`, which Next.js proxies to `http://localhost:8000/api
 5. Run the tests (in `backend/` with `.venv` active; stop uvicorn first or use another terminal):
 
 ```bash
-pytest -q                                    # 47 passed
+pytest -q                                    # 50 passed
 ```
 
 ### 6. Look at the tables in TablePlus (optional)
@@ -307,8 +307,10 @@ The code follows the same layers as tickets: `api/documents.py` → `services/do
 
 ```text
 PENDING ──upload + server verification──▶ UPLOADED   (next lesson: text extraction, chunks, embeddings)
-   └──────expired, file never arrived───▶ EXPIRED
+   └──no file 10 min after the deadline──▶ EXPIRED ──a slow upload lands after all──▶ UPLOADED
 ```
+
+upload-complete always asks S3 first; the clock only matters when the file is missing. A file that is there was accepted by S3 while the permission was valid, so it becomes `UPLOADED` however late `complete` is called. S3 checks the expiry when an upload *starts*, so a missing file is declared `EXPIRED` only after a 10-minute grace (`UPLOAD_GRACE`), and an `EXPIRED` row whose file shows up later still becomes `UPLOADED` instead of leaving an orphan.
 
 ### Never trust the client
 
@@ -496,7 +498,7 @@ pytest -q        # migrates supportflow_test (downgrade base → upgrade head), 
 | `.exe`, extension/type mismatch, no extension → 400; declared size > 10 MiB → 422 | upload-init |
 | file > 10 MiB or a different Content-Type than signed | **S3 itself** (signed policy) |
 | real size ≠ declared, or a text file renamed `.pdf` → 400, object deleted | upload-complete checks what S3 stored |
-| upload never sent before expiry → `EXPIRED` | upload-complete |
+| upload never sent → `EXPIRED` only after the deadline + grace; a late `complete` or a file landing after `EXPIRED` → `UPLOADED` | upload-complete (S3 first, clock second) |
 | `../../etc/passwd.txt` is stored as `passwd.txt`, key chosen by the server | `clean_filename` + server-generated key |
 | VIEWER can't upload; Alice can't upload into Bob's workspace; Bob's document id under Acme → 404 | Lesson 6 permission chain |
 

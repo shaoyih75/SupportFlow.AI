@@ -408,7 +408,7 @@ source .venv/bin/activate
 pytest -q
 ```
 
-✅ 成功：最后一行是 `47 passed`。
+✅ 成功：最后一行是 `50 passed`。
 
 测试用的是另一个数据库 `supportflow_test` 和另一个 S3 bucket `supportflow-documents-test`，不会影响你在网页上看到的数据。
 
@@ -540,6 +540,6 @@ docker compose up -d --wait
 - [ ] 用 carol@example.com 登录，看不到创建表单和编辑按钮
 - [ ] 新建 ticket → 重启后端 → 刷新页面，ticket 还在
 - [ ] Documents 页面上传 `handbook.txt`，状态变成 `UPLOADED`，能下载
-- [ ] `pytest -q` 显示 `47 passed`
+- [ ] `pytest -q` 显示 `50 passed`
 
 更多原理说明（为什么要分层、约束和索引、Transaction、Alembic、Docker 数据存在哪）见项目根目录的 [README.md](../README.md)。
