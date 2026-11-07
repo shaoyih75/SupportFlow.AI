@@ -13,6 +13,9 @@ bcrypt==5.0.0
 email-validator==2.3.0
 python-multipart==0.0.32   # form login for Swagger's Authorize button
 
+# file storage
+boto3==1.43.126            # AWS SDK: S3 presigned uploads, HeadObject
+
 # testing
 pytest==8.3.4
 httpx==0.28.1

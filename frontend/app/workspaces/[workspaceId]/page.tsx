@@ -37,8 +37,8 @@ export default function DashboardPage() {
   const base = `/workspaces/${workspaceId}`;
   const stats = [
     { label: "Documents", value: documents.length, href: `${base}/documents` },
-    { label: "Ready", value: documents.filter((d) => d.status === "READY").length, href: `${base}/documents` },
-    { label: "Processing", value: documents.filter((d) => d.status === "PROCESSING").length, href: `${base}/documents` },
+    { label: "Uploaded", value: documents.filter((d) => d.status === "UPLOADED").length, href: `${base}/documents` },
+    { label: "Pending", value: documents.filter((d) => d.status === "PENDING").length, href: `${base}/documents` },
     { label: "Open tickets", value: openTickets, href: `${base}/tickets` },
   ];
 

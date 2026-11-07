@@ -31,6 +31,16 @@ class ForbiddenError(AppError):
     code = "FORBIDDEN"
 
 
+class BadRequestError(AppError):
+    """400: the request is well-formed JSON but asks for something we refuse (e.g. a .exe upload)."""
+
+    status_code = 400
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class ConflictError(AppError):
     status_code = 409
 

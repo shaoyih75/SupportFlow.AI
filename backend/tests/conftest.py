@@ -14,6 +14,8 @@ TEST_DATABASE_URL = os.environ.get(
 )
 # Must happen before any `app` import: app.db.session builds its engine from DATABASE_URL.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# Tests upload real files to the local S3, in their own bucket so dev files are never touched.
+os.environ["S3_BUCKET"] = os.environ.get("TEST_S3_BUCKET", "supportflow-documents-test")
 
 from pathlib import Path  # noqa: E402
 

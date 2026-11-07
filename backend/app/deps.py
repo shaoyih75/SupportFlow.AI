@@ -8,6 +8,7 @@ BEFORE any route body or business logic.
       → TicketService (scoped query) 404 if the ticket is not in this workspace
 """
 
+from functools import lru_cache
 from uuid import UUID
 
 import jwt
@@ -19,10 +20,17 @@ from app.auth.security import decode_access_token
 from app.db.session import get_session
 from app.errors import ForbiddenError, UnauthorizedError
 from app.models import Role, User, WorkspaceMember
-from app.repositories.postgres import PostgresTicketRepository, PostgresUserRepository, PostgresWorkspaceRepository
+from app.repositories.postgres import (
+    PostgresDocumentRepository,
+    PostgresTicketRepository,
+    PostgresUserRepository,
+    PostgresWorkspaceRepository,
+)
+from app.services.document_service import DocumentService
 from app.services.ticket_service import TicketService
 from app.services.user_service import UserService
 from app.services.workspace_service import WorkspaceService
+from app.storage.s3 import S3Storage
 
 # Reads `Authorization: Bearer <token>`. tokenUrl powers Swagger's "Authorize" button.
 # auto_error=False: we raise our own 401 so the error body keeps the project's shape.
@@ -56,6 +64,19 @@ def get_ticket_service(
     tickets: PostgresTicketRepository = Depends(get_ticket_repository),
 ) -> TicketService:
     return TicketService(session, tickets)
+
+
+@lru_cache
+def get_storage() -> S3Storage:
+    # One boto3 client for the whole process: it is thread-safe and reuses connections.
+    return S3Storage()
+
+
+def get_document_service(
+    session: Session = Depends(get_session),
+    storage: S3Storage = Depends(get_storage),
+) -> DocumentService:
+    return DocumentService(session, PostgresDocumentRepository(session), storage)
 
 
 def get_user_service(
@@ -118,3 +139,4 @@ can_read = require_workspace_member
 can_write_tickets = require_workspace_role("OWNER", "MEMBER")
 can_delete_tickets = require_workspace_role("OWNER")
 can_manage_members = require_workspace_role("OWNER")
+can_upload_documents = require_workspace_role("OWNER", "MEMBER")

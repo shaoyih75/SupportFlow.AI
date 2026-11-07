@@ -99,7 +99,7 @@ export function Sidebar({ workspaceId }: SidebarProps) {
           Log out
         </button>
         <p className="sidebar-foot">
-          {apiOffline ? "⚠ API offline: start FastAPI on :8000" : "Tickets: FastAPI · Documents: mock"}
+          {apiOffline ? "⚠ API offline: start FastAPI on :8000" : "Tickets + Documents: FastAPI · Files: S3"}
         </p>
       </div>
     </aside>
